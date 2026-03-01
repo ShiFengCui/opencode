@@ -1164,107 +1164,572 @@ export const NODE_TYPES: Record<string, ComponentType> = {
 
 ## 八、实施路线图
 
-### 8.1 第一阶段：独立包基础架构 (2 周)
+### 8.1 总体时间线
+
+```
+Week 1-2:  独立包基础架构
+Week 3-4:  完整流程实现
+Week 5-7:  可视化基础
+Week 8-9:  实时同步
+Week 10-12: 高级功能
+```
+
+### 8.2 第一阶段：独立包基础架构 (Week 1-2)
 
 **目标**: 创建 `packages/flow/` 包，完成 LangGraph 基础集成
 
-- [ ] 创建 `packages/flow/` 目录结构和 package.json
-- [ ] 安装 LangGraph TypeScript 包
-- [ ] 定义 GraphState Schema
-- [ ] 实现 OpenCode API 客户端 (`opencode-client.ts`)
-- [ ] 从 OpenCode 复制必要的类型和工具函数
-- [ ] 实现核心节点（Prompt, LLM, Processor, Output）
-- [ ] 创建默认图构建器
-- [ ] 实现独立 HTTP 服务器（端口 4097）
+#### Week 1: 项目设置与核心定义
+
+**Day 1-2: 项目初始化**
+
+- [ ] 创建 `packages/flow/` 目录结构
+- [ ] 编写 `package.json` (配置依赖和脚本)
+- [ ] 配置 `tsconfig.json` (TypeScript 设置)
+- [ ] 配置 `bunfig.toml` (Bun 运行时设置)
+- [ ] 创建 `.gitignore` 文件
+- [ ] 编写 README.md (包说明)
+
+**Day 3-4: 核心类型定义**
+
+- [ ] 从 OpenCode 复制类型定义到 `src/copied/types.ts`
+  - [ ] `MessageV2` 类型
+  - [ ] `ToolInfo` 类型
+  - [ ] `PermissionRequest` 类型
+  - [ ] `SessionInfo` 类型
+- [ ] 从 OpenCode 复制工具函数到 `src/copied/utils.ts`
+  - [ ] `convertToAIMessages()`
+  - [ ] `createDefaultTitle()`
+  - [ ] `Identifier.ascending()`
+- [ ] 定义 `GraphState` Schema (`src/state.ts`)
+
+**Day 5: OpenCode API 客户端**
+
+- [ ] 实现 `OpenCodeClient` 类 (`src/opencode-client.ts`)
+  - [ ] 配置管理（baseUrl, auth）
+  - [ ] `getSession()` 方法
+  - [ ] `createMessage()` 方法
+  - [ ] `updatePart()` 方法
+  - [ ] `executeTool()` 方法
+  - [ ] `checkPermission()` 方法
 
 **交付物**:
 
-- `packages/flow/` 独立包
-- 可通过 API 启动图执行
-- 通过 HTTP 调用 OpenCode 服务
+- `packages/flow/` 基础结构
+- 类型定义和工具函数
+- OpenCode API 客户端
 
-**代码复制清单**:
-| 源文件 | 目标文件 | 说明 |
-|--------|----------|------|
-| `packages/opencode/src/session/message-v2.ts` | `packages/flow/src/copied/types.ts` | 消息类型 |
-| `packages/opencode/src/tool/tool.ts` | `packages/flow/src/copied/types.ts` | 工具类型 |
-| `packages/opencode/src/permission/next.ts` | `packages/flow/src/copied/types.ts` | 权限类型 |
-| `packages/opencode/src/session/utils.ts` | `packages/flow/src/copied/utils.ts` | 工具函数 |
+#### Week 2: 节点实现与 HTTP 服务器
 
-### 8.2 第二阶段：完整流程 (2 周)
+**Day 1-2: 节点基类与核心节点**
 
-**目标**: 实现完整会话处理流程
+- [ ] 实现 `BaseNode` 抽象类 (`src/nodes/base.ts`)
+  - [ ] `execute()` 抽象方法
+  - [ ] `onError()` 错误处理
+  - [ ] `toJSON()` 序列化
+- [ ] 实现 `PromptNode` (`src/nodes/prompt.ts`)
+- [ ] 实现 `OutputNode` (`src/nodes/output.ts`)
 
-- [ ] 实现 PermissionNode 和 ToolNode
-- [ ] 添加条件边逻辑
-- [ ] 实现循环控制（loop）
-- [ ] 集成状态持久化（Redis）
-- [ ] 添加图执行监控
-- [ ] 实现 Webhook 接收 OpenCode 事件
+**Day 3-4: 高级节点**
+
+- [ ] 实现 `LLMNode` (`src/nodes/llm.ts`)
+  - [ ] 集成 LangChain AI SDK
+  - [ ] 系统提示词构建
+  - [ ] 流式响应处理
+- [ ] 实现 `ProcessorNode` (`src/nodes/processor.ts`)
+  - [ ] 文本增量处理
+  - [ ] 工具调用识别
+- [ ] 实现 `PermissionNode` (`src/nodes/permission.ts`)
+- [ ] 实现 `ToolNode` (`src/nodes/tool.ts`)
+
+**Day 5: HTTP 服务器**
+
+- [ ] 实现 `createServer()` (`src/server/index.ts`)
+  - [ ] Hono 应用初始化
+  - [ ] CORS 中间件
+  - [ ] 健康检查端点 `/health`
+- [ ] 实现图路由 (`src/server/routes/graph.ts`)
+  - [ ] `POST /graph/start` - 启动图执行
+  - [ ] `GET /graph/:sessionID/status` - 获取状态
+  - [ ] `POST /graph/:sessionID/feedback` - 用户反馈
 
 **交付物**:
 
-- 完整的会话处理图
-- 状态持久化支持
-- OpenCode 事件集成
+- 6 个核心节点实现
+- HTTP 服务器（端口 4097）
+- 基础 API 端点
 
-### 8.3 第三阶段：可视化基础 (3 周)
+**阶段测试**:
 
-**目标**: React Flow 基础集成
+```bash
+cd packages/flow
+bun run dev  # 启动开发服务器
+curl http://localhost:4097/health  # 验证健康检查
+```
 
-- [ ] 在 `packages/web/` 中安装 React Flow
-- [ ] 创建节点组件库
-- [ ] 实现图编辑器基础功能
-- [ ] 添加节点拖拽支持
+### 8.3 第二阶段：完整流程实现 (Week 3-4)
+
+#### Week 3: 图构建与流程控制
+
+**Day 1-2: 图构建器**
+
+- [ ] 实现 `GraphBuilder` 类 (`src/builder.ts`)
+  - [ ] `addNode()` 方法
+  - [ ] `addEdge()` 方法
+  - [ ] `build()` 方法
+  - [ ] 节点执行包装器（错误处理）
+- [ ] 实现 `createDefaultGraph()` 函数
+  - [ ] 创建默认 6 节点流程图
+  - [ ] 配置固定边
+  - [ ] 配置条件边
+
+**Day 3-4: 条件边逻辑**
+
+- [ ] 实现边条件函数 (`src/edges/index.ts`)
+  - [ ] `permission` 节点的条件判断
+  - [ ] `wait_user` 节点的条件判断
+  - [ ] `llm` 节点的循环控制
+- [ ] 实现循环计数器
+  - [ ] `loopCount` 状态管理
+  - [ ] 最大循环次数限制（100 次）
+
+**Day 5: 状态持久化**
+
+- [ ] 实现 `RedisSaver` 类 (`src/persistence.ts`)
+  - [ ] Redis 连接配置
+  - [ ] `get()` 方法
+  - [ ] `put()` 方法
+  - [ ] `delete()` 方法
+- [ ] 集成到 LangGraph
+
+**交付物**:
+
+- 完整的图构建器
+- 条件边逻辑
+- Redis 状态持久化
+
+#### Week 4: 事件与集成测试
+
+**Day 1-2: 事件系统**
+
+- [ ] 定义图事件 (`src/events.ts`)
+  - [ ] `graph.node.started`
+  - [ ] `graph.node.completed`
+  - [ ] `graph.state.updated`
+  - [ ] `graph.execution.completed`
+- [ ] 实现事件发布机制
+  - [ ] 使用 EventEmitter
+  - [ ] SSE 推送支持
+
+**Day 3-4: OpenCode 集成**
+
+- [ ] 实现 Webhook 路由 (`src/server/routes/webhook.ts`)
+  - [ ] 接收 OpenCode 事件
+  - [ ] 更新图状态
+- [ ] 端到端集成测试
+  - [ ] 创建测试会话
+  - [ ] 执行完整流程
+  - [ ] 验证状态同步
+
+**Day 5: 测试与修复**
+
+- [ ] 编写单元测试 (`test/nodes/`)
+  - [ ] `PromptNode` 测试
+  - [ ] `ToolNode` 测试
+  - [ ] `GraphBuilder` 测试
+- [ ] Bug 修复和优化
+
+**交付物**:
+
+- 完整的事件系统
+- OpenCode 集成
+- 单元测试覆盖
+
+**阶段测试**:
+
+```bash
+# 启动 OpenCode 和 Flow
+cd packages/opencode && bun run dev  # 端口 4096
+cd packages/flow && bun run dev      # 端口 4097
+
+# 测试图执行
+curl -X POST http://localhost:4097/graph/start \
+  -H "Content-Type: application/json" \
+  -d '{"sessionID": "session_xxx", "userInput": "hello"}'
+```
+
+### 8.4 第三阶段：可视化基础 (Week 5-7)
+
+#### Week 5: React Flow 集成
+
+**Day 1-2: 项目设置**
+
+- [ ] 在 `packages/web` 中安装 React Flow
+  ```bash
+  cd packages/web
+  bun add reactflow @xyflow/react
+  ```
+- [ ] 创建组件目录结构
+  - [ ] `src/components/graph/`
+  - [ ] `src/components/graph/nodes/`
+  - [ ] `src/hooks/`
+
+**Day 3-4: 节点组件**
+
+- [ ] 实现 `PromptNodeComponent` (`components/graph/nodes/PromptNode.tsx`)
+- [ ] 实现 `LLMNodeComponent` (`components/graph/nodes/LLMNode.tsx`)
+- [ ] 实现 `ProcessorNodeComponent`
+- [ ] 实现 `ToolNodeComponent`
+- [ ] 实现 `PermissionNodeComponent`
+- [ ] 实现 `OutputNodeComponent`
+
+**Day 5: 节点类型映射**
+
+- [ ] 创建 `NodeTypes.tsx` 配置
+- [ ] 实现自定义节点样式
+- [ ] 添加节点状态指示器（颜色、图标）
+
+**交付物**:
+
+- React Flow 基础集成
+- 6 个自定义节点组件
+
+#### Week 6: 图编辑器
+
+**Day 1-2: 基础编辑器**
+
+- [ ] 实现 `GraphEditor` 组件 (`components/graph/GraphEditor.tsx`)
+  - [ ] ReactFlow 初始化
+  - [ ] 节点状态管理
+  - [ ] 边状态管理
+- [ ] 添加 Controls 和 Background
+
+**Day 3-4: 拖拽功能**
+
+- [ ] 实现节点拖拽添加
+  - [ ] 侧边栏节点列表
+  - [ ] Drag and Drop API
+  - [ ] 节点位置计算
 - [ ] 实现边连接功能
-- [ ] 连接 Flow 后端 API
+  - [ ] Handle 配置
+  - [ ] 连接验证
+  - [ ] 边删除
+
+**Day 5: 配置面板**
+
+- [ ] 实现节点配置面板
+  - [ ] 节点属性编辑
+  - [ ] 配置保存
+- [ ] 实现图属性面板
+  - [ ] 图名称编辑
+  - [ ] 全局配置
 
 **交付物**:
 
-- `packages/web/src/components/graph/` 可视化组件
 - 可拖拽的图编辑器
-- 与 Flow 后端通信
+- 节点配置功能
 
-### 8.4 第四阶段：实时同步 (2 周)
+#### Week 7: 后端集成
 
-**目标**: 实时状态同步
+**Day 1-2: API 连接**
 
-- [ ] 实现 SSE 状态推送（Flow → Web）
-- [ ] 添加节点状态更新
-- [ ] 实现执行进度可视化
-- [ ] 添加错误状态显示
-- [ ] 优化性能（防抖、节流）
+- [ ] 实现 Flow API 客户端 (`src/api/flow.ts`)
+  - [ ] `startGraph()` 方法
+  - [ ] `getGraphStatus()` 方法
+  - [ ] `sendFeedback()` 方法
+  - [ ] `saveGraphConfig()` 方法
+  - [ ] `loadGraphConfig()` 方法
+
+**Day 3-4: 数据同步**
+
+- [ ] 实现图配置保存/加载
+  - [ ] 节点数据序列化
+  - [ ] 边数据序列化
+  - [ ] 本地存储（localStorage）
+- [ ] 实现图导入/导出
+  - [ ] JSON 导出
+  - [ ] JSON 导入
+
+**Day 5: 集成测试**
+
+- [ ] 端到端测试
+  - [ ] 创建图 → 保存 → 加载 → 执行
+- [ ] UI 测试
+  - [ ] 节点拖拽测试
+  - [ ] 边连接测试
+  - [ ] 配置保存测试
 
 **交付物**:
 
-- 实时状态同步
-- 执行进度可视化
+- Flow 后端 API 集成
+- 图配置持久化
 
-### 8.5 第五阶段：高级功能 (3 周)
+**阶段演示**:
 
-**目标**: 高级编辑功能
+```
+1. 打开 Web 界面 (/graph)
+2. 从侧边栏拖拽节点到画布
+3. 连接节点创建流程
+4. 配置节点参数
+5. 保存图配置
+6. 点击"执行"启动流程
+```
 
-- [ ] 节点配置面板
-- [ ] 图导入/导出
-- [ ] 图模板系统
-- [ ] 版本控制
-- [ ] 协作编辑（可选）
+### 8.5 第四阶段：实时同步 (Week 8-9)
+
+#### Week 8: SSE 实时推送
+
+**Day 1-2: SSE 服务端**
+
+- [ ] 实现 SSE 端点 (`src/server/routes/graph.ts`)
+  - [ ] `GET /graph/:sessionID/stream`
+  - [ ] 事件流管理
+  - [ ] 客户端连接追踪
+- [ ] 实现事件转发
+  - [ ] Node 事件 → SSE
+  - [ ] State 事件 → SSE
+
+**Day 3-4: SSE 客户端**
+
+- [ ] 实现 `useGraphStream` Hook (`src/hooks/useGraphStream.ts`)
+  - [ ] EventSource 管理
+  - [ ] 事件监听
+  - [ ] 自动重连
+- [ ] 实现状态更新
+  - [ ] 节点状态同步
+  - [ ] 边状态同步
+
+**Day 5: 状态可视化**
+
+- [ ] 实现节点执行动画
+  - [ ] 运行时高亮
+  - [ ] 进度指示器
+- [ ] 实现边激活状态
+  - [ ] 数据流动画
+  - [ ] 条件边状态
 
 **交付物**:
 
-- 完整的图编辑功能
+- SSE 实时推送
+- 节点状态可视化
+
+#### Week 9: 性能优化
+
+**Day 1-2: 性能优化**
+
+- [ ] 实现防抖/节流
+  - [ ] 状态更新节流（100ms）
+  - [ ] 拖拽防抖
+- [ ] 实现虚拟滚动
+  - [ ] 大节点列表优化
+  - [ ] 可见区域渲染
+
+**Day 3-4: 错误处理**
+
+- [ ] 实现错误边界
+  - [ ] React Error Boundary
+  - [ ] 错误 UI 展示
+- [ ] 实现重试机制
+  - [ ] SSE 断线重连
+  - [ ] API 失败重试
+
+**Day 5: 测试与调优**
+
+- [ ] 性能测试
+  - [ ] 50+ 节点渲染测试
+  - [ ] 高频更新测试
+- [ ] 兼容性测试
+  - [ ] 浏览器兼容性
+  - [ ] 移动端适配
+
+**交付物**:
+
+- 性能优化
+- 错误处理机制
+
+### 8.6 第五阶段：高级功能 (Week 10-12)
+
+#### Week 10: 图模板系统
+
+**Day 1-2: 模板定义**
+
+- [ ] 设计模板 Schema
+- [ ] 创建默认模板
+  - [ ] 基础会话流程模板
+  - [ ] 工具调用模板
+  - [ ] 权限审批模板
+
+**Day 3-4: 模板管理**
+
+- [ ] 实现模板库组件
+- [ ] 实现模板应用功能
+- [ ] 实现模板自定义
+
+**Day 5: 版本控制**
+
+- [ ] 实现图版本管理
+  - [ ] 版本快照
+  - [ ] 版本对比
+  - [ ] 版本回滚
+
+**交付物**:
+
 - 图模板系统
+- 版本控制
 
-### 8.6 技术债务与优化
+#### Week 11: 协作功能（可选）
 
-- **性能优化**: 大图性能、虚拟滚动
-- **错误处理**: 完善的错误边界
-- **测试覆盖**: 单元测试 + E2E 测试
-- **文档**: API 文档 + 用户指南
+**Day 1-2: 实时协作**
+
+- [ ] 实现 WebSocket 协作
+- [ ] 实现操作同步
+- [ ] 实现用户存在指示
+
+**Day 3-4: 权限管理**
+
+- [ ] 实现图访问控制
+- [ ] 实现编辑权限
+- [ ] 实现评论系统
+
+**Day 5: 测试**
+
+- [ ] 多用户协作测试
+
+**交付物**:
+
+- 协作编辑功能
+
+#### Week 12: 文档与部署
+
+**Day 1-2: 文档编写**
+
+- [ ] 编写 API 文档
+- [ ] 编写用户指南
+- [ ] 编写开发文档
+
+**Day 3-4: 部署配置**
+
+- [ ] 编写 Dockerfile
+- [ ] 配置 docker-compose.yml
+- [ ] 配置 CI/CD 流程
+
+**Day 5: 发布准备**
+
+- [ ] 最终测试
+- [ ] Bug 修复
+- [ ] 发布 v1.0.0
+
+**交付物**:
+
+- 完整文档
+- 生产部署配置
 
 ---
 
-## 九、文件结构
+## 九、开发检查清单
+
+### 9.1 环境准备
+
+```bash
+# 1. 确认 Bun 版本
+bun --version  # 需要 1.3.10+
+
+# 2. 安装根依赖
+cd /home/devbox/project/opencode
+bun install
+
+# 3. 创建 flow 包
+mkdir -p packages/flow/src/{nodes,server,routes,copied}
+cd packages/flow
+bun init
+```
+
+### 9.2 第一阶段检查清单
+
+```bash
+# Week 1 检查
+□ packages/flow/package.json 存在
+□ packages/flow/tsconfig.json 存在
+□ src/copied/types.ts 包含必要类型
+□ src/opencode-client.ts 实现完成
+□ src/state.ts 定义 GraphState
+
+# Week 2 检查
+□ src/nodes/base.ts 实现 BaseNode
+□ src/nodes/*.ts 实现 6 个节点
+□ src/server/index.ts 启动 HTTP 服务
+□ curl localhost:4097/health 返回 OK
+```
+
+### 9.3 第二阶段检查清单
+
+```bash
+# Week 3 检查
+□ src/builder.ts 实现 GraphBuilder
+□ src/edges/index.ts 实现条件边
+□ src/persistence.ts 实现 RedisSaver
+□ 图执行测试通过
+
+# Week 4 检查
+□ src/events.ts 定义图事件
+□ src/server/routes/webhook.ts 实现
+□ test/nodes/*.test.ts 单元测试
+□ 端到端测试通过
+```
+
+### 9.4 第三阶段检查清单
+
+```bash
+# Week 5 检查
+□ packages/web 安装 reactflow
+□ src/components/graph/nodes/*.tsx 实现
+□ src/components/graph/NodeTypes.tsx 配置
+
+# Week 6 检查
+□ src/components/graph/GraphEditor.tsx 实现
+□ 拖拽功能正常
+□ 边连接功能正常
+
+# Week 7 检查
+□ src/api/flow.ts API 客户端
+□ 图保存/加载功能
+□ 端到端测试通过
+```
+
+### 9.5 第四阶段检查清单
+
+```bash
+# Week 8 检查
+□ SSE 端点实现
+□ src/hooks/useGraphStream.ts Hook
+□ 节点状态实时更新
+
+# Week 9 检查
+□ 性能优化完成
+□ 错误处理完善
+□ 50+ 节点测试通过
+```
+
+### 9.6 第五阶段检查清单
+
+```bash
+# Week 10 检查
+□ 模板系统实现
+□ 版本控制功能
+
+# Week 11 检查
+□ 协作功能（如实现）
+
+# Week 12 检查
+□ 文档完整
+□ Docker 配置
+□ v1.0.0 发布
+```
+
+---
+
+## 十、文件结构
+
+### 10.1 完整目录结构
 
 ```
 packages/
@@ -1273,6 +1738,8 @@ packages/
 ├── flow/                  # 新建 LangGraph 包
 │   ├── package.json
 │   ├── tsconfig.json
+│   ├── bunfig.toml
+│   ├── README.md
 │   └── src/
 │       ├── index.ts              # 导出
 │       ├── state.ts              # GraphState Schema
@@ -1294,24 +1761,44 @@ packages/
 │       ├── server/
 │       │   ├── index.ts          # HTTP 服务器
 │       │   └── routes/
+│       │       ├── graph.ts      # 图相关路由
+│       │       └── webhook.ts    # OpenCode 回调
 │       ├── copied/               # 从 OpenCode 复制的代码
 │       │   ├── types.ts          # 类型定义
 │       │   └── utils.ts          # 工具函数
 │       └── test/
+│           └── nodes/
+│               ├── prompt.test.ts
+│               └── tool.test.ts
 └── web/                   # Web 前端
     └── src/
         └── components/
             └── graph/
+                ├── GraphEditor.tsx
+                ├── NodeTypes.tsx
+                └── nodes/
+                    ├── PromptNode.tsx
+                    ├── LLMNode.tsx
+                    └── ...
 ```
 
 ---
 
-## 十、依赖包
+## 十一、依赖包
 
-### 10.1 packages/flow 依赖
+### 11.1 packages/flow 依赖
 
 ```json
 {
+  "name": "@opencode-ai/flow",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --hot src/index.ts",
+    "build": "bun build src/index.ts --outdir dist",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "@langchain/langgraph": "^0.2.0",
     "@langchain/core": "^0.3.0",
@@ -1328,7 +1815,7 @@ packages/
 }
 ```
 
-### 10.2 packages/web 依赖（React Flow）
+### 11.2 packages/web 依赖（React Flow）
 
 ```json
 {
@@ -1341,9 +1828,9 @@ packages/
 
 ---
 
-## 十一、风险与挑战
+## 十二、风险与挑战
 
-### 11.1 技术风险
+### 12.1 技术风险
 
 | 风险                    | 影响 | 缓解措施                  |
 | ----------------------- | ---- | ------------------------- |
@@ -1352,14 +1839,14 @@ packages/
 | 状态同步延迟            | 中   | 优化 SSE、使用 WebSocket  |
 | 代码复制维护成本高      | 中   | 建立自动化同步脚本        |
 
-### 11.2 实施挑战
+### 12.2 实施挑战
 
 1. **代码同步**: OpenCode 类型变更时需手动同步到 flow 包
 2. **状态管理复杂性**: 图状态与现有 Session 状态同步
 3. **可视化性能**: 大图渲染性能优化
 4. **API 兼容性**: 确保 OpenCode API 向后兼容
 
-### 11.3 成功标准
+### 12.3 成功标准
 
 - ✅ 完整会话流程可用 LangGraph 执行
 - ✅ 可视化编辑器可拖拽定义流程
@@ -1382,9 +1869,10 @@ packages/
 
 | 版本 | 日期       | 更新内容                               |
 | ---- | ---------- | -------------------------------------- |
+| 1.2  | 2026-03-01 | 添加详细开发步骤和阶段                 |
 | 1.1  | 2026-03-01 | 更新为独立包架构，不修改 opencode 代码 |
 | 1.0  | 2026-03-01 | 初始版本                               |
 
-本文档版本：1.1  
+本文档版本：1.2  
 创建日期：2026-03-01  
 作者：AI Assistant
