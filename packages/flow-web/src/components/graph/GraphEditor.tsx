@@ -67,6 +67,8 @@ export function GraphEditor({ sessionID, onGraphChange }: GraphEditorProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
   const [selectedNodes, setSelectedNodes] = useState<Node[]>([])
+  const [showConfigPanel, setShowConfigPanel] = useState(false)
+  const [showTemplateManager, setShowTemplateManager] = useState(false)
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge({ ...params, animated: true }, eds)),
@@ -75,6 +77,11 @@ export function GraphEditor({ sessionID, onGraphChange }: GraphEditorProps) {
 
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     setSelectedNodes([node])
+  }, [])
+
+  const onNodeDoubleClick = useCallback((_: React.MouseEvent, node: Node) => {
+    setSelectedNodes([node])
+    setShowConfigPanel(true)
   }, [])
 
   const addNode = useCallback(
@@ -106,6 +113,39 @@ export function GraphEditor({ sessionID, onGraphChange }: GraphEditorProps) {
     onGraphChange?.(config)
   }, [sessionID, nodes, edges, onGraphChange])
 
+  const saveAsTemplate = useCallback(() => {
+    const name = prompt("Enter template name:")
+    if (!name) return
+
+    const config: GraphConfig = {
+      id: `template-${Date.now()}`,
+      name,
+      nodes: nodes as GraphNode[],
+      edges: edges as GraphEdge[],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+
+    graphTemplateManager.createTemplate(name, config)
+    alert("Template saved!")
+  }, [nodes, edges])
+
+  const handleSaveNodeConfig = useCallback(
+    (updatedNode: Node) => {
+      setNodes((nds) => nds.map((n) => (n.id === updatedNode.id ? updatedNode : n)))
+      setShowConfigPanel(false)
+    },
+    [setNodes],
+  )
+
+  const handleApplyTemplate = useCallback(
+    (config: GraphConfig) => {
+      setNodes(config.nodes as Node[])
+      setEdges(config.edges as Edge[])
+    },
+    [setNodes, setEdges],
+  )
+
   return (
     <div style={{ width: "100%", height: "600px", border: "1px solid #e5e7eb", borderRadius: "8px" }}>
       <div
@@ -115,6 +155,7 @@ export function GraphEditor({ sessionID, onGraphChange }: GraphEditorProps) {
           display: "flex",
           gap: "8px",
           background: "#f9fafb",
+          flexWrap: "wrap",
         }}
       >
         <button onClick={() => addNode("prompt")} style={buttonStyle}>
@@ -138,6 +179,15 @@ export function GraphEditor({ sessionID, onGraphChange }: GraphEditorProps) {
         <button onClick={saveGraph} style={{ ...buttonStyle, background: "#10b981", color: "white" }}>
           💾 Save
         </button>
+        <button onClick={saveAsTemplate} style={{ ...buttonStyle, background: "#8b5cf6", color: "white" }}>
+          📋 Save as Template
+        </button>
+        <button
+          onClick={() => setShowTemplateManager(true)}
+          style={{ ...buttonStyle, background: "#f59e0b", color: "white" }}
+        >
+          📁 Templates
+        </button>
       </div>
 
       <ReactFlow
@@ -147,6 +197,7 @@ export function GraphEditor({ sessionID, onGraphChange }: GraphEditorProps) {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onNodeClick={onNodeClick}
+        onNodeDoubleClick={onNodeDoubleClick}
         nodeTypes={nodeTypes}
         fitView
         snapToGrid
@@ -156,7 +207,7 @@ export function GraphEditor({ sessionID, onGraphChange }: GraphEditorProps) {
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
       </ReactFlow>
 
-      {selectedNodes.length > 0 && (
+      {selectedNodes.length > 0 && !showConfigPanel && (
         <div
           style={{
             position: "absolute",
@@ -175,7 +226,34 @@ export function GraphEditor({ sessionID, onGraphChange }: GraphEditorProps) {
             <div>Type: {selectedNodes[0].type}</div>
             <div>Label: {selectedNodes[0].data.label}</div>
           </div>
+          <button
+            onClick={() => setShowConfigPanel(true)}
+            style={{
+              marginTop: "8px",
+              padding: "4px 8px",
+              fontSize: "12px",
+              background: "#3b82f6",
+              color: "white",
+              border: "none",
+              borderRadius: "4px",
+              cursor: "pointer",
+            }}
+          >
+            Edit Config
+          </button>
         </div>
+      )}
+
+      {showConfigPanel && selectedNodes[0] && (
+        <NodeConfigPanel
+          node={selectedNodes[0] as GraphNode}
+          onClose={() => setShowConfigPanel(false)}
+          onSave={handleSaveNodeConfig}
+        />
+      )}
+
+      {showTemplateManager && (
+        <TemplateManager onApplyTemplate={handleApplyTemplate} onClose={() => setShowTemplateManager(false)} />
       )}
     </div>
   )
