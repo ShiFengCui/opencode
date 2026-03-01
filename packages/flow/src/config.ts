@@ -11,8 +11,8 @@ const ConfigSchema = z.object({
     port: z.number().default(4097),
     hostname: z.string().default("0.0.0.0"),
   }),
-  redis: z.object({
-    url: z.string().optional(),
+  fileStorage: z.object({
+    directory: z.string().default("./.flow-state"),
   }),
 })
 
@@ -30,8 +30,8 @@ export async function loadConfig(): Promise<Config> {
       port: parseInt(process.env.PORT || "4097"),
       hostname: "0.0.0.0",
     },
-    redis: {
-      url: process.env.REDIS_URL,
+    fileStorage: {
+      directory: process.env.FLOW_STATE_DIR || "./.flow-state",
     },
   }
 
