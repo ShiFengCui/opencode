@@ -1,0 +1,7 @@
+[install]
+# Use workspace packages
+workspace = true
+
+[test]
+# Test configuration
+root = "./test"
