@@ -2,6 +2,7 @@ import { Hono } from "hono"
 import { cors } from "hono/cors"
 import { GraphRoutes } from "./routes/graph"
 import { WebhookRoutes } from "./routes/webhook"
+import { SSERoutes } from "./routes/sse"
 
 export function createServer() {
   const app = new Hono()
@@ -17,6 +18,7 @@ export function createServer() {
 
   // 路由
   app.route("/graph", GraphRoutes())
+  app.route("/graph", SSERoutes())
   app.route("/webhook", WebhookRoutes())
 
   // 健康检查
