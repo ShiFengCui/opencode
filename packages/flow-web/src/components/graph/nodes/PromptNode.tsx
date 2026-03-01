@@ -1,6 +1,6 @@
 import { Handle, Position } from "@xyflow/react"
 import type { NodeProps } from "@xyflow/react"
-import { NODE_COLORS, STATUS_COLORS } from "../node-types"
+import { STATUS_COLORS } from "../node-types"
 
 export type PromptNodeData = {
   label: string

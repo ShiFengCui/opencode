@@ -1,4 +1,4 @@
-import React from "react"
+import React, { useState } from "react"
 import { GraphEditor } from "./GraphEditor"
 import { useGraphState, useGraphExecution } from "../hooks/useGraphState"
 import { flowAPI } from "../api/flow"
@@ -30,7 +30,7 @@ export function GraphPlayground({ sessionID }: GraphPlaygroundProps) {
   return (
     <div style={{ padding: "20px", maxWidth: "1400px", margin: "0 auto" }}>
       <div style={{ marginBottom: "20px" }}>
-        <h1 style={{ fontSize: "24px", marginBottom: "8px" }}>Graph Playground</h1>
+        <h1 style={{ fontSize: "24px", marginBottom: "8px" }}>Flow Playground</h1>
         <p style={{ color: "#666" }}>Session: {sessionID}</p>
       </div>
 
