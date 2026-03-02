@@ -18,9 +18,10 @@ export class LLMNode extends BaseNode {
 
     try {
       // 1. 获取 AI 提供商配置
-      const provider = process.env.FLOW_LLM_DEFAULT_PROVIDER || "anthropic"
-      const model = process.env.FLOW_LLM_DEFAULT_MODEL || "claude-sonnet-4-20250514"
-      const apiKey = process.env[`FLOW_${provider.toUpperCase()}_API_KEY`]
+      const provider = process.env.FLOW_LLM_DEFAULT_PROVIDER || "aliyun"
+      const model = process.env.FLOW_LLM_DEFAULT_MODEL || "qwen-plus"
+      const apiKey =
+        process.env[`FLOW_${provider.toUpperCase()}_API_KEY`] || process.env[`${provider.toUpperCase()}_API_KEY`]
 
       if (!apiKey) {
         console.warn("[Flow:LLMNode] API key not found, using mock response")
@@ -42,6 +43,13 @@ export class LLMNode extends BaseNode {
       } else if (provider === "openai") {
         const openai = createOpenAI({ apiKey })
         modelInstance = openai(model)
+      } else if (provider === "aliyun" || provider === "qwen") {
+        // 阿里云 Qwen 模型（兼容 OpenAI 格式）
+        const openai = createOpenAI({
+          apiKey,
+          baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        })
+        modelInstance = openai(model || "qwen-plus")
       } else {
         throw new Error(`Unsupported provider: ${provider}`)
       }
