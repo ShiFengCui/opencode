@@ -1,27 +1,44 @@
-// Flow Package Entry Point
+/**
+ * Flow 服务器入口
+ */
 import { createServer } from "./server"
-import { loadConfig } from "./config"
+import { FlowConfig } from "./flow-config"
 
 async function main() {
-  const config = await loadConfig()
   const app = createServer()
 
-  console.log(`[Flow] Starting server on ${config.server.hostname}:${config.server.port}`)
-  console.log(`[Flow] OpenCode Base URL: ${config.opencode.baseUrl}`)
+  const port = FlowConfig.server.port
+  const hostname = FlowConfig.server.hostname
+
+  console.log("=".repeat(60))
+  console.log("Flow Server Starting...")
+  console.log("=".repeat(60))
+  console.log()
+  console.log(`Port: ${port}`)
+  console.log(`Hostname: ${hostname}`)
+  console.log()
+  console.log("Endpoints:")
+  console.log(`  Health:       http://${hostname}:${port}/health`)
+  console.log(`  Protocol:     http://${hostname}:${port}/session`)
+  console.log(`  Events:       http://${hostname}:${port}/event`)
+  console.log(`  Flow Graph:   http://${hostname}:${port}/flow/graph`)
+  console.log()
+  console.log("Adapters:")
+  console.log("  - opencode (default)")
+  console.log("  - flow")
+  console.log()
+  console.log("=".repeat(60))
 
   const server = {
-    port: config.server.port,
-    hostname: config.server.hostname,
+    port,
+    hostname,
     fetch: app.fetch,
   }
-
-  console.log(`[Flow] Server ready at http://${config.server.hostname}:${config.server.port}`)
-  console.log(`[Flow] Health check: http://${config.server.hostname}:${config.server.port}/health`)
 
   return server
 }
 
-// 开发模式热重载
+// 开发模式
 if (process.env.NODE_ENV !== "production") {
   main().catch(console.error)
 }

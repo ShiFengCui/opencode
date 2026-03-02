@@ -1,37 +1,62 @@
 import { Hono } from "hono"
-import { cors } from "hono/cors"
-import { GraphRoutes } from "./routes/graph"
-import { WebhookRoutes } from "./routes/webhook"
-import { SSERoutes } from "./routes/sse"
+import { corsMiddleware } from "./middleware/cors"
+import { authMiddleware } from "./middleware/auth"
+import { errorMiddleware, notFoundMiddleware } from "./middleware/error"
+import { logMiddleware } from "./middleware/log"
+import { ProtocolRoutes } from "./routes/protocol"
+import { FlowRoutes } from "./routes/flow"
+import { protocolRouter } from "../protocol/router"
+import { OpenCodeAdapter } from "../protocol/opencode-adapter"
+import { FlowAdapter } from "../protocol/flow-adapter"
 
+/**
+ * 创建 Flow 服务器
+ * 统一兼容 OpenCode 协议 + Flow 独有功能
+ */
 export function createServer() {
   const app = new Hono()
 
-  // 中间件
-  app.use("*", cors())
+  // 注册协议适配器
+  protocolRouter.register("opencode", new OpenCodeAdapter())
+  protocolRouter.register("flow", new FlowAdapter())
 
-  // 日志中间件
-  app.use("*", async (c, next) => {
-    console.log(`[HTTP] ${c.req.method} ${c.req.path}`)
-    await next()
-  })
+  // ==================== 中间件 ====================
 
-  // 路由
-  app.route("/graph", GraphRoutes())
-  app.route("/graph", SSERoutes())
-  app.route("/webhook", WebhookRoutes())
+  // CORS（必须在最前面）
+  app.use("*", corsMiddleware)
+
+  // 日志
+  app.use("*", logMiddleware)
+
+  // 认证（可选）
+  app.use("*", authMiddleware)
+
+  // ==================== 路由 ====================
+
+  // 统一协议路由（兼容 OpenCode）
+  app.route("/", ProtocolRoutes())
+
+  // Flow 独有路由
+  app.route("/flow", FlowRoutes())
+
+  // ==================== 系统端点 ====================
 
   // 健康检查
-  app.get("/health", (c) => c.json({ status: "ok", timestamp: Date.now() }))
+  app.get("/health", (c) =>
+    c.json({
+      status: "ok",
+      timestamp: Date.now(),
+      adapters: protocolRouter.getTypes(),
+    }),
+  )
 
-  // 404 处理
-  app.notFound((c) => c.json({ error: "Not Found" }, 404))
+  // ==================== 错误处理 ====================
+
+  // 404
+  app.notFound(notFoundMiddleware)
 
   // 错误处理
-  app.onError((err, c) => {
-    console.error("[HTTP] Error:", err)
-    return c.json({ error: err.message }, 500)
-  })
+  app.onError(errorMiddleware)
 
   return app
 }
