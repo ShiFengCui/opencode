@@ -1,31 +1,29 @@
 import { BaseNode, type NodeConfig } from "./base"
 import type { GraphState } from "../state"
-import { OpenCodeClient } from "../opencode-client"
 import { streamText } from "ai"
 import { createAnthropic } from "@ai-sdk/anthropic"
 import { createOpenAI } from "@ai-sdk/openai"
+import { ToolRegistry } from "../opencode/tool/registry"
+import { SystemPrompt } from "../opencode/session/system-prompt"
 
 export class LLMNode extends BaseNode {
-  private client: OpenCodeClient
-
-  constructor(config: NodeConfig, client: OpenCodeClient) {
+  constructor(config: NodeConfig) {
     super({ ...config, type: "llm" })
-    this.client = client
   }
 
   async execute(state: GraphState): Promise<Partial<GraphState>> {
     const { sessionID, messages, userInput } = state
 
-    console.log(`[LLMNode] Calling LLM for session ${sessionID}`)
+    console.log(`[Flow:LLMNode] Calling LLM for session ${sessionID}`)
 
     try {
-      // 获取 AI 提供商配置
-      const provider = process.env.AI_PROVIDER || "anthropic"
-      const model = process.env.AI_MODEL || "claude-sonnet-4-20250514"
-      const apiKey = process.env[`${provider.toUpperCase()}_API_KEY`]
+      // 1. 获取 AI 提供商配置
+      const provider = process.env.FLOW_LLM_DEFAULT_PROVIDER || "anthropic"
+      const model = process.env.FLOW_LLM_DEFAULT_MODEL || "claude-sonnet-4-20250514"
+      const apiKey = process.env[`FLOW_${provider.toUpperCase()}_API_KEY`]
 
       if (!apiKey) {
-        console.warn("[LLMNode] API key not found, using mock response")
+        console.warn("[Flow:LLMNode] API key not found, using mock response")
         return {
           nextNode: "processor",
           toolCalls: [],
@@ -36,7 +34,7 @@ export class LLMNode extends BaseNode {
         }
       }
 
-      // 创建模型实例
+      // 2. 创建模型实例
       let modelInstance: any
       if (provider === "anthropic") {
         const anthropic = createAnthropic({ apiKey })
@@ -48,10 +46,19 @@ export class LLMNode extends BaseNode {
         throw new Error(`Unsupported provider: ${provider}`)
       }
 
-      // 构建系统提示词
-      const systemPrompt = this.buildSystemPrompt(state)
+      // 3. 构建系统提示词（直接调用复制的代码）
+      const systemPrompt = await SystemPrompt.build({
+        sessionID,
+        agent: state.agent || "build",
+      })
 
-      // 调用 LLM
+      // 4. 获取工具定义（直接调用复制的代码）
+      const tools = await ToolRegistry.build({
+        sessionID,
+        agent: state.agent || "build",
+      })
+
+      // 5. 调用 LLM
       const result = await streamText({
         model: modelInstance,
         system: systemPrompt,
@@ -61,11 +68,11 @@ export class LLMNode extends BaseNode {
             content: userInput || "Hello",
           },
         ],
-        tools: this.getTools(),
+        tools: Object.keys(tools).length > 0 ? tools : undefined,
         maxSteps: 10,
       })
 
-      // 处理工具调用
+      // 6. 处理工具调用
       const toolCalls: any[] = []
       for await (const chunk of result.fullStream) {
         if (chunk.type === "tool-call") {
@@ -77,7 +84,7 @@ export class LLMNode extends BaseNode {
         }
       }
 
-      console.log(`[LLMNode] LLM response received, toolCalls: ${toolCalls.length}`)
+      console.log(`[Flow:LLMNode] LLM response received, toolCalls: ${toolCalls.length}`)
 
       return {
         nextNode: "processor",
@@ -88,38 +95,8 @@ export class LLMNode extends BaseNode {
         },
       }
     } catch (error) {
-      console.error("[LLMNode] Error:", error)
+      console.error("[Flow:LLMNode] Error:", error)
       return this.onError(state, error as Error)
     }
-  }
-
-  /**
-   * 构建系统提示词
-   */
-  private buildSystemPrompt(state: GraphState): string {
-    return `You are OpenCode, an interactive CLI tool that helps users with software engineering tasks.
-
-# Professional objectivity
-Prioritize technical accuracy and truthfulness. Admit when you're uncertain.
-
-# Tool usage policy
-- Use specialized tools instead of bash commands when possible
-- Use read/edit tools for file operations
-- Use glob/grep for searching
-
-# Current environment
-Working directory: ${process.cwd()}
-Platform: ${process.platform}
-Today's date: ${new Date().toISOString()}
-
-Be concise and professional. Focus on helping the user complete their task efficiently.`
-  }
-
-  /**
-   * 获取工具定义
-   */
-  private getTools(): Record<string, any> {
-    // TODO: 从 OpenCode 获取工具定义
-    return {}
   }
 }

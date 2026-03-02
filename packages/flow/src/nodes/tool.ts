@@ -1,27 +1,48 @@
 import { BaseNode, type NodeConfig } from "./base"
 import type { GraphState } from "../state"
-import { OpenCodeClient } from "../opencode-client"
+import { ToolRegistry } from "../opencode/tool/registry"
+import { PermissionNext } from "../opencode/permission/next"
+import { Bus } from "../opencode/bus"
 
 export class ToolNode extends BaseNode {
-  private client: OpenCodeClient
-
-  constructor(config: NodeConfig, client: OpenCodeClient) {
+  constructor(config: NodeConfig) {
     super({ ...config, type: "tool" })
-    this.client = client
   }
 
   async execute(state: GraphState): Promise<Partial<GraphState>> {
     const { toolCalls = [], sessionID } = state
     const results: any[] = []
 
-    console.log(`[ToolNode] Executing ${toolCalls.length} tools`)
+    console.log(`[Flow:ToolNode] Executing ${toolCalls.length} tools`)
 
     try {
       for (const toolCall of toolCalls) {
-        // 通过 API 执行工具
-        const result = await this.client.executeTool(toolCall.toolName, toolCall.input, sessionID)
+        // 1. 权限检查（直接调用复制的代码）
+        await PermissionNext.ask({
+          permission: toolCall.toolName,
+          sessionID,
+          metadata: toolCall.input,
+        })
+
+        // 2. 获取工具（直接调用复制的代码）
+        const tool = await ToolRegistry.get(toolCall.toolName)
+
+        if (!tool) {
+          console.error(`[Flow:ToolNode] Tool not found: ${toolCall.toolName}`)
+          continue
+        }
+
+        // 3. 执行工具（直接调用复制的代码）
+        const result = await tool.execute(toolCall.input, { sessionID })
         results.push(result)
-        console.log(`[ToolNode] Tool ${toolCall.toolName} executed successfully`)
+
+        console.log(`[Flow:ToolNode] Tool ${toolCall.toolName} executed successfully`)
+
+        // 4. 发布事件（直接调用复制的代码）
+        Bus.publish("tool.executed" as any, {
+          toolCallID: toolCall.id,
+          result,
+        })
       }
 
       return {
@@ -34,6 +55,7 @@ export class ToolNode extends BaseNode {
         },
       }
     } catch (error) {
+      console.error("[Flow:ToolNode] Error:", error)
       return this.onError(state, error as Error)
     }
   }

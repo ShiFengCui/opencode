@@ -1,32 +1,56 @@
 import { BaseNode, type NodeConfig } from "./base"
 import type { GraphState } from "../state"
-import { OpenCodeClient } from "../opencode-client"
-import { ascendingID } from "../copied/utils"
+import { Session } from "../opencode/session"
+import { MessageV2 } from "../opencode/session/message-v2"
+import { Bus } from "../opencode/bus"
+import { Identifier } from "../opencode/id/id"
 
 export class PromptNode extends BaseNode {
-  private client: OpenCodeClient
-
-  constructor(config: NodeConfig, client: OpenCodeClient) {
+  constructor(config: NodeConfig) {
     super({ ...config, type: "prompt" })
-    this.client = client
   }
 
   async execute(state: GraphState): Promise<Partial<GraphState>> {
     const { sessionID, userInput } = state
 
-    console.log(`[PromptNode] Processing input for session ${sessionID}`)
+    console.log(`[Flow:PromptNode] Processing input for session ${sessionID}`)
 
     try {
-      // 1. 获取会话
-      const session = await this.client.getSession(sessionID)
+      // 1. 获取会话（直接调用复制的代码）
+      const session = await Session.get(sessionID)
 
-      // 2. 创建用户消息
-      const message = await this.client.createMessage({
+      // 2. 创建用户消息（直接调用复制的代码）
+      const messageID = Identifier.ascending("message")
+      const message: MessageV2.User = {
+        id: messageID,
         sessionID,
-        parts: [{ type: "text", text: userInput }],
-      })
+        role: "user",
+        time: { created: Date.now() },
+      }
 
-      console.log(`[PromptNode] Created message: ${message.id}`)
+      await Session.updateMessage(message)
+
+      // 3. 保存消息部分
+      if (userInput) {
+        const partID = Identifier.ascending("part")
+        const part: MessageV2.TextPart = {
+          id: partID,
+          sessionID,
+          messageID,
+          type: "text",
+          text: userInput,
+          time: { start: Date.now() },
+        }
+        await Session.updatePart(part)
+      }
+
+      // 4. 更新会话时间戳
+      await Session.touch(sessionID)
+
+      // 5. 发布事件（直接调用复制的代码）
+      Bus.publish(MessageV2.Event.Created, { info: message })
+
+      console.log(`[Flow:PromptNode] Created message: ${messageID}`)
 
       return {
         messages: [...(state.messages || []), message],
@@ -38,6 +62,7 @@ export class PromptNode extends BaseNode {
         },
       }
     } catch (error) {
+      console.error("[Flow:PromptNode] Error:", error)
       return this.onError(state, error as Error)
     }
   }

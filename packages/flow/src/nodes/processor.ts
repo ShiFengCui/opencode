@@ -1,19 +1,18 @@
 import { BaseNode, type NodeConfig } from "./base"
 import type { GraphState } from "../state"
-import { OpenCodeClient } from "../opencode-client"
+import { Session } from "../opencode/session"
+import { MessageV2 } from "../opencode/session/message-v2"
+import { Bus } from "../opencode/bus"
 
 export class ProcessorNode extends BaseNode {
-  private client: OpenCodeClient
-
-  constructor(config: NodeConfig, client: OpenCodeClient) {
+  constructor(config: NodeConfig) {
     super({ ...config, type: "processor" })
-    this.client = client
   }
 
   async execute(state: GraphState): Promise<Partial<GraphState>> {
-    const { toolCalls = [] } = state
+    const { llmResponse, sessionID, toolCalls = [] } = state
 
-    console.log(`[ProcessorNode] Processing response, toolCalls: ${toolCalls.length}`)
+    console.log(`[Flow:ProcessorNode] Processing response, toolCalls: ${toolCalls.length}`)
 
     try {
       // 判断是否有工具调用
@@ -36,6 +35,7 @@ export class ProcessorNode extends BaseNode {
         },
       }
     } catch (error) {
+      console.error("[Flow:ProcessorNode] Error:", error)
       return this.onError(state, error as Error)
     }
   }

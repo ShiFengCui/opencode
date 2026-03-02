@@ -1,27 +1,38 @@
 import { BaseNode, type NodeConfig } from "./base"
 import type { GraphState } from "../state"
-import { OpenCodeClient } from "../opencode-client"
+import { PermissionNext } from "../opencode/permission/next"
 
 export class PermissionNode extends BaseNode {
-  private client: OpenCodeClient
-
-  constructor(config: NodeConfig, client: OpenCodeClient) {
+  constructor(config: NodeConfig) {
     super({ ...config, type: "permission" })
-    this.client = client
   }
 
   async execute(state: GraphState): Promise<Partial<GraphState>> {
     const { toolCalls = [], sessionID } = state
     const pendingPermissions: any[] = []
 
-    console.log(`[PermissionNode] Checking permissions for ${toolCalls.length} tool calls`)
+    console.log(`[Flow:PermissionNode] Checking permissions for ${toolCalls.length} tool calls`)
 
     try {
-      // 检查每个工具调用的权限
+      // 检查每个工具调用的权限（直接调用复制的代码）
       for (const toolCall of toolCalls) {
-        // TODO: 实际权限检查逻辑
-        // 目前假设所有权限都已批准
-        // 未来需要集成 OpenCode 的权限系统
+        try {
+          await PermissionNext.ask({
+            permission: toolCall.toolName,
+            sessionID,
+            metadata: toolCall.input,
+          })
+        } catch (error: any) {
+          if (error.name === "PermissionDeniedError") {
+            pendingPermissions.push({
+              toolCallID: toolCall.id,
+              permission: toolCall.toolName,
+              error: error.message,
+            })
+          } else {
+            throw error
+          }
+        }
       }
 
       return {
@@ -33,6 +44,7 @@ export class PermissionNode extends BaseNode {
         },
       }
     } catch (error) {
+      console.error("[Flow:PermissionNode] Error:", error)
       return this.onError(state, error as Error)
     }
   }
