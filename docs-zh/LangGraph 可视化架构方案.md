@@ -1,364 +1,225 @@
-# OpenCode + LangGraph 可视化架构方案
+# OpenCode + LangGraph 可视化架构方案（优化版）
 
-> 本文档描述如何基于 LangGraph (TypeScript 版本) 将 OpenCode 后端处理流程定义为可可视化的节点图，为未来结合 React Flow 实现拖拽式流程定义奠定基础。
+> **核心目标**: 基于 LangGraph 框架，建设可拖拽的可视化编码产品，节点封装 OpenCode 全部能力，支持完全复刻 OpenCode 功能。
 >
-> **架构原则**: 不修改 `packages/opencode/` 现有代码，在 `packages/flow/` 独立实现 LangGraph 后端，通过复制必要代码和调用 OpenCode API 实现集成。
-
-## 目录
-
-- [一、方案概述](#一方案概述)
-- [二、核心概念映射](#二核心概念映射)
-- [三、节点设计](#三节点设计)
-- [四、边与状态设计](#四边与状态设计)
-- [五、架构实现方案](#五架构实现方案)
-- [六、独立包架构设计](#六独立包架构设计)
-- [七、React Flow 可视化集成](#七-react-flow-可视化集成)
-- [八、实施路线图](#八实施路线图)
+> **架构原则**:
+>
+> 1. 复制 OpenCode 核心代码到 `packages/flow/`，直接调用而非 HTTP
+> 2. 节点完整封装 OpenCode 能力（Session、Tool、Permission、Provider）
+> 3. 可视化流程能完全复刻 OpenCode 所有功能
+> 4. 保持 `packages/opencode/` 不变，flow 作为独立产品运行
 
 ---
 
 ## 一、方案概述
 
-### 1.1 目标
+### 1.1 产品定位
 
-将 OpenCode 的会话处理流程使用 LangGraph 进行重构，实现：
+**Flow** 是 OpenCode 的可视化版本，提供：
 
-1. **流程可视化**: 通过节点图清晰展示 AI 代理的工作流程
-2. **可配置性**: 用户可通过拖拽方式自定义 Agent 流程
-3. **状态可追踪**: 每个节点执行状态可监控和调试
-4. **流程可复用**: 标准化的节点定义支持跨会话复用
+- 🎨 **可视化编辑**: 拖拽节点定义 AI 工作流
+- 🔧 **完整能力**: 100% 复刻 OpenCode 所有功能
+- 📦 **独立运行**: 不依赖 OpenCode 运行时
+- 🚀 **性能优化**: 本地调用，无 HTTP 开销
 
-### 1.2 技术选型
+### 1.2 核心差异
 
-| 组件         | 技术                    | 说明                   |
-| ------------ | ----------------------- | ---------------------- |
-| **图框架**   | LangGraph (TypeScript)  | 基于状态机的图执行框架 |
-| **可视化**   | React Flow              | 可拖拽的节点图编辑器   |
-| **运行时**   | Bun + Hono              | OpenCode 现有后端      |
-| **状态管理** | LangGraph State + Redis | 图状态持久化           |
-| **通信协议** | SSE + WebSocket         | 实时状态推送           |
+| 特性     | OpenCode       | Flow                    |
+| -------- | -------------- | ----------------------- |
+| 交互方式 | CLI / Web 对话 | 可视化拖拽              |
+| 流程定义 | 固定会话循环   | 可自定义节点图          |
+| 代码复用 | 原始实现       | 复制到 flow 包          |
+| 调用方式 | 直接调用       | 直接调用（同左）        |
+| 运行时   | 独立           | 独立（不依赖 OpenCode） |
 
 ### 1.3 整体架构
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        可视化编辑层                               │
+│                        可视化编辑层 (React Flow)                  │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │              React Flow 编辑器                           │   │
-│  │  ┌──────┐   ┌──────┐   ┌──────┐   ┌──────┐            │   │
-│  │  │ Prompt│ → │ LLM  │ → │Tool  │ → │Result│            │   │
-│  │  └──────┘   └──────┘   └──────┘   └──────┘            │   │
+│  │  节点库  │  画布编辑器  │  配置面板  │  模板管理       │   │
 │  └─────────────────────────────────────────────────────────┘   │
 └────────────────────────┬────────────────────────────────────────┘
-                         │ JSON 图定义
+                         │ 图定义 (JSON)
 ┌────────────────────────▼────────────────────────────────────────┐
-│                      LangGraph 执行层                            │
+│                      LangGraph 执行层 (packages/flow)            │
 │  ┌────────────────────────────────────────────────────────┐    │
-│  │                    StateGraph                          │    │
+│  │  StateGraph + Nodes + Edges                            │    │
 │  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  │    │
-│  │  │ Prompt  │→ │  LLM    │→ │ Tool    │→ │ Output  │  │    │
+│  │  │ Prompt  │→ │  LLM    │→ │  Tool   │→ │ Output  │  │    │
 │  │  │  Node   │  │  Node   │  │  Node   │  │  Node   │  │    │
 │  │  └─────────┘  └─────────┘  └─────────┘  └─────────┘  │    │
 │  └────────────────────────────────────────────────────────┘    │
 └────────────────────────┬────────────────────────────────────────┘
-                         │
+                         │ 直接调用（无 HTTP）
 ┌────────────────────────▼────────────────────────────────────────┐
-│                    OpenCode 核心服务层                           │
+│                  OpenCode 核心代码 (已复制到 flow)                │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐     │
 │  │  Session     │  │   Provider   │  │     Tool         │     │
-│  │  Service     │  │   Service    │  │     Registry     │     │
+│  │  (复制)      │  │   (复制)     │  │     (复制)       │     │
+│  └──────────────┘  └──────────────┘  └──────────────────┘     │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐     │
+│  │  Permission  │  │    Storage   │  │      Bus         │     │
+│  │  (复制)      │  │   (复制)     │  │    (复制)        │     │
 │  └──────────────┘  └──────────────┘  └──────────────────┘     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 二、核心概念映射
+## 二、代码复制策略
 
-### 2.1 OpenCode 流程 → LangGraph 节点
+### 2.1 需要复制的核心模块
 
-| OpenCode 组件                   | LangGraph 节点   | 职责                   |
-| ------------------------------- | ---------------- | ---------------------- |
-| `SessionPrompt.prompt()`        | `PromptNode`     | 处理用户输入，创建消息 |
-| `LLM.stream()`                  | `LLMNode`        | 调用 AI 模型，流式处理 |
-| `SessionProcessor.create()`     | `ProcessorNode`  | 处理流式响应           |
-| `ToolRegistry.build()`          | `ToolNode`       | 执行工具调用           |
-| `PermissionNext.ask()`          | `PermissionNode` | 权限检查               |
-| `SessionCompaction.summarize()` | `CompactionNode` | 上下文压缩             |
-| `Storage.write()`               | `StorageNode`    | 数据持久化             |
-| `Bus.publish()`                 | `EventNode`      | 事件广播               |
+```
+packages/opencode/src/          →      packages/flow/src/opencode/
+├── session/                    →      ├── session/
+│   ├── index.ts                →      │   ├── index.ts          # 会话管理
+│   ├── message-v2.ts           →      │   ├── message-v2.ts     # 消息模型
+│   ├── prompt.ts               →      │   ├── prompt.ts         # 提示词处理
+│   ├── processor.ts            →      │   ├── processor.ts      # 消息处理
+│   ├── llm.ts                  →      │   ├── llm.ts            # LLM 调用
+│   └── compaction.ts           →      │   └── compaction.ts     # 上下文压缩
+├── tool/                       →      ├── tool/
+│   ├── tool.ts                 →      │   ├── tool.ts           # 工具定义
+│   ├── registry.ts             →      │   ├── registry.ts       # 工具注册表
+│   ├── read.ts                 →      │   ├── read.ts           # 读文件
+│   ├── write.ts                →      │   ├── write.ts          # 写文件
+│   ├── edit.ts                 →      │   ├── edit.ts           # 编辑文件
+│   ├── bash.ts                 →      │   ├── bash.ts           # 执行命令
+│   ├── grep.ts                 →      │   ├── grep.ts           # 搜索
+│   └── ...                     →      │   └── ...
+├── permission/                 →      ├── permission/
+│   └── next.ts                 →      │   └── next.ts           # 权限控制
+├── provider/                   →      ├── provider/
+│   ├── provider.ts             →      │   ├── provider.ts       # 提供商管理
+│   └── models.ts               →      │   └── models.ts         # 模型配置
+├── storage/                    →      ├── storage/
+│   └── storage.ts              →      │   └── storage.ts        # 文件存储
+├── bus/                        →      ├── bus/
+│   ├── index.ts                →      │   ├── index.ts          # 事件总线
+│   └── bus-event.ts            →      │   └── bus-event.ts      # 事件定义
+└── util/                       →      ├── util/
+    ├── filesystem.ts           →      │   ├── filesystem.ts     # 文件系统
+    └── log.ts                  →      │   └── log.ts            # 日志
+```
 
-### 2.2 OpenCode 状态 → LangGraph State
+### 2.2 复制后的调用方式
+
+**之前（HTTP 调用 - 不推荐）**:
 
 ```typescript
-// OpenCode 现有状态
-interface OpenCodeState {
-  sessionID: string
-  messages: MessageV2[]
-  parts: MessageV2.Part[]
-  permissions: PermissionNext.Rule[]
+// packages/flow/src/opencode-client.ts
+async getSession(sessionID: string) {
+  const response = await fetch(`http://localhost:4096/session/${sessionID}`)
+  return response.json()
+}
+```
+
+**优化后（直接调用 - 推荐）**:
+
+```typescript
+// packages/flow/src/nodes/prompt.ts
+import { Session } from '../opencode/session'
+import { Bus } from '../opencode/bus'
+
+async execute(state: GraphState) {
+  // 直接调用复制过来的代码
+  const session = await Session.get(state.sessionID)
+  const message = await Session.createMessage({ ... })
+  Bus.publish(MessageV2.Event.Created, { info: message })
+}
+```
+
+### 2.3 代码适配层
+
+部分代码需要适配才能独立运行：
+
+```typescript
+// packages/flow/src/opencode-adapter.ts
+
+/**
+ * 配置适配器 - 使用 flow 的配置而非 opencode
+ */
+export const ConfigAdapter = {
+  get: (key: string) => {
+    return process.env[`FLOW_${key}`] || process.env[key]
+  },
+  getStateDir: () => {
+    return process.env.FLOW_STATE_DIR || "./.flow-state"
+  },
 }
 
-// LangGraph State (扩展)
-interface GraphState extends OpenCodeState {
-  // 图执行状态
-  currentNode?: string
-  executionStatus: "idle" | "running" | "completed" | "error"
+/**
+ * 日志适配器 - 使用 flow 的日志前缀
+ */
+export const LogAdapter = {
+  info: (service: string, message: string, extra?: any) => {
+    console.log(`[Flow:${service}] ${message}`, extra || "")
+  },
+  error: (service: string, message: string, error?: any) => {
+    console.error(`[Flow:${service}] ${message}`, error || "")
+  },
+}
 
-  // 流程控制
-  nextNode?: string
-  loopCount: number
-  shouldContinue: boolean
-
-  // LLM 相关
-  llmResponse?: StreamTextResult
-  toolCalls: ToolCall[]
-
-  // 用户交互
-  pendingPermissions: PermissionRequest[]
-  userFeedback?: string
-
-  // 元数据
-  timestamps: {
-    started: number
-    lastUpdated: number
-    completed?: number
-  }
+/**
+ * 存储路径适配器
+ */
+export function adaptStoragePath(originalPath: string): string {
+  const stateDir = ConfigAdapter.getStateDir()
+  return originalPath.replace("~/.opencode", stateDir)
 }
 ```
 
 ---
 
-## 三、节点设计
+## 三、节点设计（完整封装）
 
-### 3.1 节点基类定义
+### 3.1 节点分类
 
-```typescript
-// packages/opencode/src/graph/nodes/base.ts
-import { StateGraph, Annotation } from "@langchain/langgraph"
+| 分类     | 节点           | 封装的 OpenCode 能力   |
+| -------- | -------------- | ---------------------- |
+| **输入** | PromptNode     | Session.createMessage  |
+| **处理** | LLMNode        | LLM.stream, Provider   |
+| **处理** | ProcessorNode  | SessionProcessor       |
+| **工具** | ToolNode       | ToolRegistry, 所有工具 |
+| **控制** | PermissionNode | PermissionNext.ask     |
+| **控制** | ConditionNode  | 条件判断               |
+| **控制** | LoopNode       | 循环控制               |
+| **输出** | OutputNode     | Session.updateMessage  |
+| **输出** | FileNode       | File.write             |
 
-export interface NodeConfig {
-  id: string
-  type: string
-  name: string
-  description?: string
-  position?: { x: number; y: number } // React Flow 位置
-}
-
-export abstract class BaseNode {
-  public readonly config: NodeConfig
-
-  constructor(config: NodeConfig) {
-    this.config = config
-  }
-
-  /**
-   * 节点执行逻辑
-   * @param state 当前图状态
-   * @returns 更新后的状态
-   */
-  abstract execute(state: GraphState): Promise<Partial<GraphState>>
-
-  /**
-   * 节点错误处理
-   */
-  async onError(state: GraphState, error: Error): Promise<Partial<GraphState>> {
-    return {
-      executionStatus: "error",
-      userFeedback: `Node ${this.config.id} failed: ${error.message}`,
-    }
-  }
-
-  /**
-   * 序列化节点配置（用于持久化和可视化）
-   */
-  toJSON(): object {
-    return {
-      id: this.config.id,
-      type: this.config.type,
-      name: this.config.name,
-      description: this.config.description,
-    }
-  }
-}
-```
-
-### 3.2 核心节点实现
-
-#### 3.2.1 PromptNode - 提示词处理节点
+### 3.2 完整节点实现示例
 
 ```typescript
-// packages/opencode/src/graph/nodes/prompt.ts
-export class PromptNode extends BaseNode {
-  constructor(config: NodeConfig) {
-    super({ ...config, type: "prompt" })
-  }
+// packages/flow/src/nodes/ToolNode.ts
+import { BaseNode } from "./base"
+import { ToolRegistry } from "../opencode/tool/registry"
+import { PermissionNext } from "../opencode/permission/next"
+import { Bus } from "../opencode/bus"
 
-  async execute(state: GraphState): Promise<Partial<GraphState>> {
-    const { sessionID, userInput } = state
-
-    // 1. 获取会话
-    const session = await Session.get(sessionID)
-
-    // 2. 创建用户消息
-    const message = await createUserMessage({
-      sessionID,
-      parts: [{ type: "text", text: userInput }],
-      agent: session.agent,
-    })
-
-    // 3. 发布事件
-    Bus.publish(MessageV2.Event.Created, { info: message })
-
-    return {
-      messages: [...state.messages, message],
-      nextNode: "llm", // 下一个节点
-      loopCount: state.loopCount + 1,
-    }
-  }
-}
-```
-
-#### 3.2.2 LLMNode - AI 模型调用节点
-
-```typescript
-// packages/opencode/src/graph/nodes/llm.ts
-export class LLMNode extends BaseNode {
-  constructor(config: NodeConfig) {
-    super({ ...config, type: "llm" })
-  }
-
-  async execute(state: GraphState): Promise<Partial<GraphState>> {
-    const { sessionID, messages, model } = state
-
-    // 1. 构建系统提示词
-    const systemPrompt = await SystemPrompt.build({
-      sessionID,
-      agent: state.agent,
-    })
-
-    // 2. 获取工具定义
-    const tools = await ToolRegistry.build({ sessionID })
-
-    // 3. 调用 LLM
-    const stream = await streamText({
-      model,
-      system: systemPrompt,
-      messages: convertToAIMessages(messages),
-      tools,
-      maxSteps: 100,
-    })
-
-    return {
-      llmResponse: stream,
-      nextNode: "processor",
-    }
-  }
-}
-```
-
-#### 3.2.3 ProcessorNode - 响应处理节点
-
-```typescript
-// packages/opencode/src/graph/nodes/processor.ts
-export class ProcessorNode extends BaseNode {
-  constructor(config: NodeConfig) {
-    super({ ...config, type: "processor" })
-  }
-
-  async execute(state: GraphState): Promise<Partial<GraphState>> {
-    const { llmResponse, sessionID } = state
-    const toolCalls: ToolCall[] = []
-
-    // 处理流式响应
-    for await (const value of llmResponse.fullStream) {
-      switch (value.type) {
-        case "text-delta":
-          await this.handleTextDelta(state, value)
-          break
-        case "tool-call":
-          toolCalls.push(value)
-          break
-        case "finish-step":
-          await this.handleStepFinish(state, value)
-          break
-      }
-    }
-
-    return {
-      toolCalls,
-      nextNode: toolCalls.length > 0 ? "permission" : "output",
-    }
-  }
-
-  private async handleTextDelta(state: GraphState, value: any) {
-    // 保存文本增量并发布事件
-    await Session.updatePart({
-      part: state.currentTextPart,
-      delta: value.text,
-    })
-    Bus.publish(MessageV2.Event.PartUpdated, {
-      part: state.currentTextPart,
-      delta: value.text,
-    })
-  }
-}
-```
-
-#### 3.2.4 PermissionNode - 权限检查节点
-
-```typescript
-// packages/opencode/src/graph/nodes/permission.ts
-export class PermissionNode extends BaseNode {
-  constructor(config: NodeConfig) {
-    super({ ...config, type: "permission" })
-  }
-
+export class ToolNode extends BaseNode {
   async execute(state: GraphState): Promise<Partial<GraphState>> {
     const { toolCalls, sessionID } = state
-    const pendingPermissions: PermissionRequest[] = []
+    const results: any[] = []
 
     for (const toolCall of toolCalls) {
-      // 检查权限
-      const permission = await PermissionNext.ask({
+      // 1. 权限检查（直接调用复制的代码）
+      await PermissionNext.ask({
         permission: toolCall.toolName,
         sessionID,
         metadata: toolCall.input,
       })
 
-      if (permission.status === "pending") {
-        pendingPermissions.push(permission)
-      }
-    }
-
-    return {
-      pendingPermissions,
-      nextNode: pendingPermissions.length > 0 ? "wait_user" : "tool",
-    }
-  }
-}
-```
-
-#### 3.2.5 ToolNode - 工具执行节点
-
-```typescript
-// packages/opencode/src/graph/nodes/tool.ts
-export class ToolNode extends BaseNode {
-  constructor(config: NodeConfig) {
-    super({ ...config, type: "tool" })
-  }
-
-  async execute(state: GraphState): Promise<Partial<GraphState>> {
-    const { toolCalls, sessionID } = state
-    const results: ToolResult[] = []
-
-    for (const toolCall of toolCalls) {
-      // 执行工具
+      // 2. 获取工具（直接调用复制的代码）
       const tool = await ToolRegistry.get(toolCall.toolName)
+
+      // 3. 执行工具
       const result = await tool.execute(toolCall.input, { sessionID })
       results.push(result)
 
-      // 发布事件
+      // 4. 发布事件（直接调用复制的代码）
       Bus.publish(Tool.Event.Executed, {
         toolCallID: toolCall.id,
         result,
@@ -367,484 +228,6 @@ export class ToolNode extends BaseNode {
 
     return {
       toolResults: results,
-      nextNode: "llm", // 返回 LLM 继续处理
-      shouldContinue: true,
-    }
-  }
-}
-```
-
-#### 3.2.6 OutputNode - 输出节点
-
-```typescript
-// packages/opencode/src/graph/nodes/output.ts
-export class OutputNode extends BaseNode {
-  constructor(config: NodeConfig) {
-    super({ ...config, type: "output" })
-  }
-
-  async execute(state: GraphState): Promise<Partial<GraphState>> {
-    const { sessionID, messages } = state
-
-    // 保存最终消息
-    await Session.updateMessage(state.assistantMessage)
-
-    // 发布完成事件
-    Bus.publish(MessageV2.Event.Completed, {
-      sessionID,
-      messageID: state.assistantMessage.id,
-    })
-
-    return {
-      executionStatus: "completed",
-      shouldContinue: false,
-      timestamps: {
-        ...state.timestamps,
-        completed: Date.now(),
-      },
-    }
-  }
-}
-```
-
-### 3.3 条件边定义
-
-```typescript
-// packages/opencode/src/graph/edges.ts
-export const EDGES = {
-  // 固定边
-  prompt: "llm",
-  llm: "processor",
-  processor: "permission",
-  output: "__END__",
-
-  // 条件边
-  permission: (state: GraphState) => {
-    if (state.pendingPermissions.length > 0) {
-      return "wait_user"
-    }
-    if (state.toolCalls.length > 0) {
-      return "tool"
-    }
-    return "output"
-  },
-
-  wait_user: (state: GraphState) => {
-    if (state.userFeedback === "approve") {
-      return "tool"
-    }
-    if (state.userFeedback === "reject") {
-      return "output"
-    }
-    return null // 等待用户输入
-  },
-
-  tool: "llm", // 工具执行后返回 LLM
-
-  // 循环控制
-  llm: (state: GraphState) => {
-    if (state.loopCount > 100) {
-      return "output" // 防止无限循环
-    }
-    if (state.shouldContinue) {
-      return "processor"
-    }
-    return "output"
-  },
-}
-```
-
----
-
-## 四、边与状态设计
-
-### 4.1 图状态 Schema
-
-```typescript
-// packages/opencode/src/graph/state.ts
-import { Annotation } from "@langchain/langgraph"
-
-export const GraphStateSchema = Annotation.Root({
-  // 会话上下文
-  sessionID: Annotation<string>(),
-  messages: Annotation<MessageV2[]>({
-    reducer: (a, b) => [...a, ...b],
-  }),
-  parts: Annotation<MessageV2.Part[]>({
-    reducer: (a, b) => [...a, ...b],
-  }),
-
-  // 流程控制
-  nextNode: Annotation<string | undefined>(),
-  loopCount: Annotation<number>({
-    reducer: (a, b) => a + b,
-    default: () => 0,
-  }),
-  shouldContinue: Annotation<boolean>({
-    default: () => true,
-  }),
-
-  // LLM 相关
-  llmResponse: Annotation<any>(),
-  toolCalls: Annotation<ToolCall[]>({
-    reducer: (a, b) => [...a, ...b],
-  }),
-  toolResults: Annotation<ToolResult[]>({
-    reducer: (a, b) => [...a, ...b],
-  }),
-
-  // 用户交互
-  pendingPermissions: Annotation<PermissionRequest[]>({
-    reducer: (a, b) => [...a, ...b],
-  }),
-  userInput: Annotation<string>(),
-  userFeedback: Annotation<string | undefined>(),
-
-  // 执行状态
-  currentNode: Annotation<string | undefined>(),
-  executionStatus: Annotation<"idle" | "running" | "completed" | "error">({
-    default: () => "idle",
-  }),
-
-  // 元数据
-  timestamps: Annotation<{
-    started: number
-    lastUpdated: number
-    completed?: number
-  }>({
-    default: () => ({ started: 0, lastUpdated: 0 }),
-  }),
-})
-
-export type GraphState = typeof GraphStateSchema.State
-```
-
-### 4.2 状态持久化
-
-```typescript
-// packages/opencode/src/graph/persistence.ts
-import { BaseCheckpointSaver } from "@langchain/langgraph"
-
-export class RedisSaver extends BaseCheckpointSaver {
-  private redis: Redis
-
-  constructor(redisUrl: string) {
-    super()
-    this.redis = new Redis(redisUrl)
-  }
-
-  async get(namespace: string, key: string): Promise<any> {
-    const data = await this.redis.get(`${namespace}:${key}`)
-    return data ? JSON.parse(data) : null
-  }
-
-  async put(namespace: string, key: string, value: any): Promise<void> {
-    await this.redis.set(`${namespace}:${key}`, JSON.stringify(value))
-  }
-
-  async delete(namespace: string, key: string): Promise<void> {
-    await this.redis.del(`${namespace}:${key}`)
-  }
-}
-```
-
----
-
-## 五、架构实现方案
-
-### 5.1 图状态 Schema
-
-```typescript
-// packages/flow/src/state.ts
-import { Annotation } from "@langchain/langgraph"
-
-export const GraphStateSchema = Annotation.Root({
-  // 会话上下文
-  sessionID: Annotation<string>(),
-  messages: Annotation<any[]>({ reducer: (a, b) => [...a, ...b] }),
-  parts: Annotation<any[]>({ reducer: (a, b) => [...a, ...b] }),
-
-  // 流程控制
-  nextNode: Annotation<string | undefined>(),
-  loopCount: Annotation<number>({ reducer: (a, b) => a + b, default: () => 0 }),
-  shouldContinue: Annotation<boolean>({ default: () => true }),
-
-  // LLM 相关
-  llmResponse: Annotation<any>(),
-  toolCalls: Annotation<any[]>({ reducer: (a, b) => [...a, ...b] }),
-  toolResults: Annotation<any[]>({ reducer: (a, b) => [...a, ...b] }),
-
-  // 用户交互
-  pendingPermissions: Annotation<any[]>({ reducer: (a, b) => [...a, ...b] }),
-  userInput: Annotation<string>(),
-  userFeedback: Annotation<string | undefined>(),
-
-  // 执行状态
-  currentNode: Annotation<string | undefined>(),
-  executionStatus: Annotation<"idle" | "running" | "completed" | "error">({ default: () => "idle" }),
-
-  // 元数据
-  timestamps: Annotation<{ started: number; lastUpdated: number; completed?: number }>({
-    default: () => ({ started: 0, lastUpdated: 0 }),
-  }),
-})
-
-export type GraphState = typeof GraphStateSchema.State
-```
-
----
-
-## 六、独立包架构设计
-
-### 6.1 设计原则
-
-**核心原则**: 不修改 `packages/opencode/` 任何代码，通过以下方式实现集成：
-
-1. **代码复制**: 将必要的类型定义、工具函数复制到 `packages/flow/`
-2. **API 调用**: 通过 HTTP API 调用 OpenCode 现有服务（Session、Tool、Provider 等）
-3. **事件总线**: 使用独立的 EventEmitter，通过 HTTP/SSE 与 OpenCode 事件系统对接
-4. **配置隔离**: 独立的配置文件和数据库连接
-
-### 6.2 目录结构
-
-```
-packages/
-├── opencode/              # 原有核心包（不修改）
-│   └── src/
-├── flow/                  # 新建 LangGraph 包
-│   ├── package.json
-│   ├── tsconfig.json
-│   ├── bunfig.toml
-│   └── src/
-│       ├── index.ts              # 导出
-│       ├── state.ts              # GraphState Schema
-│       ├── builder.ts            # 图构建器
-│       ├── persistence.ts        # 状态持久化
-│       ├── events.ts             # 图事件定义
-│       ├── config.ts             # 配置管理
-│       ├── opencode-client.ts    # OpenCode API 客户端
-│       ├── nodes/
-│       │   ├── base.ts           # 节点基类
-│       │   ├── prompt.ts         # PromptNode
-│       │   ├── llm.ts            # LLMNode
-│       │   ├── processor.ts      # ProcessorNode
-│       │   ├── permission.ts     # PermissionNode
-│       │   ├── tool.ts           # ToolNode
-│       │   └── output.ts         # OutputNode
-│       ├── edges/
-│       │   └── index.ts          # 边定义
-│       ├── server/
-│       │   ├── index.ts          # HTTP 服务器
-│       │   └── routes/
-│       │       ├── graph.ts      # 图相关路由
-│       │       └── webhook.ts    # OpenCode 回调
-│       └── copied/               # 从 OpenCode 复制的代码
-│           ├── types.ts          # 类型定义（MessageV2, Tool 等）
-│           └── utils.ts          # 工具函数
-│   └── test/
-│       └── nodes/
-│           └── prompt.test.ts
-└── web/                   # Web 前端
-    └── src/
-        └── components/
-            └── graph/
-```
-
-### 6.3 package.json 配置
-
-```json
-{
-  "name": "@opencode-ai/flow",
-  "version": "0.0.1",
-  "type": "module",
-  "scripts": {
-    "dev": "bun run --hot src/index.ts",
-    "build": "bun build src/index.ts --outdir dist",
-    "test": "bun test",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@langchain/langgraph": "^0.2.0",
-    "@langchain/core": "^0.3.0",
-    "@langchain/anthropic": "^0.3.0",
-    "@langchain/openai": "^0.3.0",
-    "hono": "^4.0.0",
-    "zod": "^3.22.0",
-    "redis": "^4.6.0",
-    "@opencode-ai/util": "workspace:*"
-  },
-  "devDependencies": {
-    "@types/bun": "latest",
-    "typescript": "^5.0.0"
-  }
-}
-```
-
-### 6.4 OpenCode API 客户端
-
-```typescript
-// packages/flow/src/opencode-client.ts
-import { z } from "zod"
-
-export interface OpenCodeClientConfig {
-  baseUrl: string
-  apiKey?: string
-  username?: string
-  password?: string
-}
-
-export class OpenCodeClient {
-  private baseUrl: string
-  private headers: HeadersInit
-
-  constructor(config: OpenCodeClientConfig) {
-    this.baseUrl = config.baseUrl
-    this.headers = {
-      "Content-Type": "application/json",
-      ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
-      ...(config.username && config.password
-        ? { Authorization: `Basic ${btoa(`${config.username}:${config.password}`)}` }
-        : {}),
-    }
-  }
-
-  // 会话管理
-  async getSession(sessionID: string) {
-    const response = await fetch(`${this.baseUrl}/session/${sessionID}`, {
-      headers: this.headers,
-    })
-    return response.json()
-  }
-
-  async createMessage(input: { sessionID: string; parts: any[] }) {
-    const response = await fetch(`${this.baseUrl}/session/${input.sessionID}/message`, {
-      method: "POST",
-      headers: this.headers,
-      body: JSON.stringify({ parts: input.parts }),
-    })
-    return response.json()
-  }
-
-  async updatePart(part: any) {
-    const response = await fetch(
-      `${this.baseUrl}/session/${part.sessionID}/message/${part.messageID}/part/${part.id}`,
-      {
-        method: "PATCH",
-        headers: this.headers,
-        body: JSON.stringify(part),
-      },
-    )
-    return response.json()
-  }
-
-  // 工具执行
-  async executeTool(toolName: string, input: any, sessionID: string) {
-    // 通过 OpenCode 的工具 API 执行，或直接调用工具函数
-    const response = await fetch(`${this.baseUrl}/tool/${toolName}/execute`, {
-      method: "POST",
-      headers: this.headers,
-      body: JSON.stringify({ input, sessionID }),
-    })
-    return response.json()
-  }
-
-  // 权限检查
-  async checkPermission(input: { permission: string; patterns: string[]; sessionID: string }) {
-    const response = await fetch(`${this.baseUrl}/permission`, {
-      method: "POST",
-      headers: this.headers,
-      body: JSON.stringify(input),
-    })
-    return response.json()
-  }
-
-  // 事件订阅（SSE）
-  subscribeEvents(
-    sessionID: string,
-    callbacks: {
-      onNodeStarted?: (data: any) => void
-      onNodeCompleted?: (data: any) => void
-      onStateUpdated?: (data: any) => void
-    },
-  ) {
-    const eventSource = new EventSource(`${this.baseUrl}/event?sessionID=${sessionID}`)
-
-    eventSource.addEventListener("graph.node.started", (e) => {
-      callbacks.onNodeStarted?.(JSON.parse(e.data))
-    })
-
-    eventSource.addEventListener("graph.node.completed", (e) => {
-      callbacks.onNodeCompleted?.(JSON.parse(e.data))
-    })
-
-    return () => eventSource.close()
-  }
-}
-```
-
-### 6.5 节点实现（使用 API 客户端）
-
-```typescript
-// packages/flow/src/nodes/prompt.ts
-import { BaseNode, NodeConfig } from "./base"
-import { GraphState } from "../state"
-import { OpenCodeClient } from "../opencode-client"
-
-export class PromptNode extends BaseNode {
-  private client: OpenCodeClient
-
-  constructor(config: NodeConfig, client: OpenCodeClient) {
-    super({ ...config, type: "prompt" })
-    this.client = client
-  }
-
-  async execute(state: GraphState): Promise<Partial<GraphState>> {
-    const { sessionID, userInput } = state
-
-    // 1. 获取会话
-    const session = await this.client.getSession(sessionID)
-
-    // 2. 创建用户消息
-    const message = await this.client.createMessage({
-      sessionID,
-      parts: [{ type: "text", text: userInput }],
-    })
-
-    return {
-      messages: [...state.messages, message],
-      nextNode: "llm",
-      loopCount: state.loopCount + 1,
-    }
-  }
-}
-```
-
-```typescript
-// packages/flow/src/nodes/tool.ts
-import { BaseNode, NodeConfig } from "./base"
-import { GraphState } from "../state"
-import { OpenCodeClient } from "../opencode-client"
-
-export class ToolNode extends BaseNode {
-  private client: OpenCodeClient
-
-  constructor(config: NodeConfig, client: OpenCodeClient) {
-    super({ ...config, type: "tool" })
-    this.client = client
-  }
-
-  async execute(state: GraphState): Promise<Partial<GraphState>> {
-    const { toolCalls, sessionID } = state
-    const results: any[] = []
-
-    for (const toolCall of toolCalls) {
-      // 通过 API 执行工具
-      const result = await this.client.executeTool(toolCall.toolName, toolCall.input, sessionID)
-      results.push(result)
-    }
-
-    return {
-      toolResults: results,
       nextNode: "llm",
       shouldContinue: true,
     }
@@ -852,1027 +235,284 @@ export class ToolNode extends BaseNode {
 }
 ```
 
-### 6.6 图构建器
+### 3.3 可配置节点参数
 
 ```typescript
-// packages/flow/src/builder.ts
-import { StateGraph, END } from "@langchain/langgraph"
-import { GraphStateSchema, GraphState } from "./state"
-import { BaseNode } from "./nodes/base"
-import { OpenCodeClient } from "./opencode-client"
-
-export class GraphBuilder {
-  private nodes: Map<string, BaseNode> = new Map()
-  private edges: Map<string, string | ((state: GraphState) => string | null)> = new Map()
-  private client: OpenCodeClient
-
-  constructor(client: OpenCodeClient) {
-    this.client = client
-  }
-
-  addNode(node: BaseNode): this {
-    this.nodes.set(node.config.id, node)
-    return this
-  }
-
-  addEdge(from: string, to: string | ((state: GraphState) => string | null)): this {
-    this.edges.set(from, to)
-    return this
-  }
-
-  build(): any {
-    const workflow = new StateGraph(GraphStateSchema)
-
-    // 添加节点
-    for (const [id, node] of this.nodes.entries()) {
-      workflow.addNode(id, async (state) => {
-        try {
-          return await node.execute(state as GraphState)
-        } catch (error) {
-          return await node.onError(state as GraphState, error as Error)
-        }
-      })
-    }
-
-    // 添加边
-    for (const [from, to] of this.edges.entries()) {
-      if (typeof to === "function") {
-        workflow.addConditionalEdges(from, to)
-      } else if (to === "__END__") {
-        workflow.addEdge(from, END)
-      } else {
-        workflow.addEdge(from, to)
-      }
-    }
-
-    workflow.setEntryPoint("prompt")
-    return workflow.compile()
-  }
+// LLM 节点配置
+interface LLMNodeConfig {
+  provider: "anthropic" | "openai" | "google"
+  model: string
+  temperature: number
+  maxTokens: number
+  systemPrompt?: string
 }
 
-// 创建默认图
-export function createDefaultGraph(client: OpenCodeClient): any {
-  return new GraphBuilder(client)
-    .addNode(new PromptNode({ id: "prompt", name: "提示词处理" }, client))
-    .addNode(new LLMNode({ id: "llm", name: "AI 模型调用" }, client))
-    .addNode(new ProcessorNode({ id: "processor", name: "响应处理" }, client))
-    .addNode(new PermissionNode({ id: "permission", name: "权限检查" }, client))
-    .addNode(new ToolNode({ id: "tool", name: "工具执行" }, client))
-    .addNode(new OutputNode({ id: "output", name: "结果输出" }, client))
-    .addEdge("prompt", "llm")
-    .addEdge("llm", "processor")
-    .addEdge("processor", "permission")
-    .addEdge("permission", (state) =>
-      state.pendingPermissions.length > 0 ? "wait_user" : state.toolCalls.length > 0 ? "tool" : "output",
-    )
-    .addEdge("tool", "llm")
-    .addEdge("output", "__END__")
-    .build()
+// Tool 节点配置
+interface ToolNodeConfig {
+  allowedTools: string[]
+  defaultTimeout: number
+  requirePermission: boolean
+}
+
+// Permission 节点配置
+interface PermissionNodeConfig {
+  autoApprove: string[]
+  autoReject: string[]
+  requireApproval: string[]
 }
 ```
 
-### 6.7 HTTP 服务器
+---
 
-```typescript
-// packages/flow/src/server/index.ts
-import { Hono } from "hono"
-import { cors } from "hono/cors"
-import { GraphRoutes } from "./routes/graph"
-import { WebhookRoutes } from "./routes/webhook"
+## 四、架构实现
 
-export function createServer() {
-  const app = new Hono()
+### 4.1 目录结构（完整版）
 
-  // 中间件
-  app.use("*", cors())
-
-  // 路由
-  app.route("/graph", GraphRoutes())
-  app.route("/webhook", WebhookRoutes())
-
-  // 健康检查
-  app.get("/health", (c) => c.json({ status: "ok" }))
-
-  return app
-}
-
-// 启动服务器
-const app = createServer()
-
-export default {
-  port: process.env.PORT || 4097, // 使用不同端口，避免冲突
-  fetch: app.fetch,
-}
+```
+packages/flow/
+├── package.json
+├── tsconfig.json
+├── bunfig.toml
+├── README.md
+├── .env.example
+├── src/
+│   ├── index.ts                    # 入口
+│   ├── server/
+│   │   ├── index.ts                # HTTP 服务器（仅用于 Web UI）
+│   │   └── routes/
+│   │       ├── graph.ts            # 图执行 API
+│   │       └── sse.ts              # SSE 推送
+│   ├── graph/
+│   │   ├── state.ts                # GraphState Schema
+│   │   ├── builder.ts              # 图构建器
+│   │   ├── persistence.ts          # 文件存储
+│   │   └── events.ts               # 图事件
+│   ├── nodes/
+│   │   ├── base.ts                 # 节点基类
+│   │   ├── PromptNode.ts           # 提示词节点
+│   │   ├── LLMNode.ts              # LLM 节点
+│   │   ├── ProcessorNode.ts        # 处理器节点
+│   │   ├── ToolNode.ts             # 工具节点
+│   │   ├── PermissionNode.ts       # 权限节点
+│   │   ├── ConditionNode.ts        # 条件节点
+│   │   └── OutputNode.ts           # 输出节点
+│   └── opencode/                   # 复制的 OpenCode 代码
+│       ├── session/
+│       ├── tool/
+│       ├── permission/
+│       ├── provider/
+│       ├── storage/
+│       ├── bus/
+│       └── util/
+└── test/
+    ├── nodes/
+    └── graph/
 ```
 
-### 6.8 从 OpenCode 复制的代码
-
-需要复制的类型和工具函数：
-
-```typescript
-// packages/flow/src/copied/types.ts
-// 从 packages/opencode/src/session/message-v2.ts 复制
-export type MessageV2 = {
-  id: string
-  sessionID: string
-  role: "user" | "assistant"
-  // ... 其他字段
-}
-
-// 从 packages/opencode/src/tool/tool.ts 复制
-export type ToolInfo = {
-  name: string
-  description: string
-  parameters: any
-}
-
-// 从 packages/opencode/src/permission/next.ts 复制
-export type PermissionRequest = {
-  id: string
-  permission: string
-  metadata?: Record<string, any>
-}
-```
-
-```typescript
-// packages/flow/src/copied/utils.ts
-// 从 packages/opencode/src/util 复制必要的工具函数
-export function convertToAIMessages(messages: any[]): any[] {
-  // 转换逻辑
-}
-
-export function createDefaultTitle(isFork: boolean): string {
-  return isFork ? "New Session (fork)" : "New Session"
-}
-```
-
-### 6.9 配置管理
+### 4.2 独立运行配置
 
 ```typescript
 // packages/flow/src/config.ts
-import { z } from "zod"
-
-const ConfigSchema = z.object({
-  opencode: z.object({
-    baseUrl: z.string().default("http://localhost:4096"),
-    apiKey: z.string().optional(),
-    username: z.string().optional(),
-    password: z.string().optional(),
-  }),
-  server: z.object({
-    port: z.number().default(4097),
-    hostname: z.string().default("0.0.0.0"),
-  }),
-  redis: z.object({
-    url: z.string().optional(),
-  }),
-})
-
-export type Config = z.infer<typeof ConfigSchema>
-
-export async function loadConfig(): Promise<Config> {
-  // 从环境变量或配置文件加载
-  return {
-    opencode: {
-      baseUrl: process.env.OPENCODE_BASE_URL || "http://localhost:4096",
-      apiKey: process.env.OPENCODE_API_KEY,
-      username: process.env.OPENCODE_SERVER_USERNAME,
-      password: process.env.OPENCODE_SERVER_PASSWORD,
-    },
-    server: {
-      port: parseInt(process.env.PORT || "4097"),
-      hostname: "0.0.0.0",
-    },
-    redis: {
-      url: process.env.REDIS_URL,
-    },
-  }
-}
-```
-
-### 6.10 与 OpenCode 的集成方式
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         packages/flow/                           │
-│  ┌───────────────┐  ┌───────────────┐  ┌───────────────────┐   │
-│  │  Graph API    │←─┤  OpenCode     │←─┤ HTTP Client       │   │
-│  │  (port:4097)  │  │   Client      │  │ (port:4096)       │   │
-│  └───────────────┘  └───────────────┘  └───────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-         │                                              │
-         │                                              │
-         ▼                                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                         packages/web/                            │
-│  ┌───────────────┐  ┌───────────────┐                           │
-│  │  Graph UI     │  │  OpenCode UI  │                           │
-│  │  (React Flow) │  │               │                           │
-│  └───────────────┘  └───────────────┘                           │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**集成要点**:
-
-1. **独立端口**: Flow 服务运行在 4097 端口，OpenCode 运行在 4096
-2. **API 调用**: Flow 通过 HTTP 调用 OpenCode 的 Session、Tool、Permission API
-3. **事件同步**: 通过 Webhook 或 SSE 订阅 OpenCode 事件
-4. **数据同步**: 共享同一个数据库/文件系统存储
-
-### 6.11 部署配置
-
-```yaml
-# docker-compose.yml
-version: "3.8"
-services:
-  opencode:
-    build:
-      context: .
-      dockerfile: packages/opencode/Dockerfile
-    ports:
-      - "4096:4096"
-    environment:
-      - OPENCODE_SERVER_PASSWORD=xxx
-
-  flow:
-    build:
-      context: .
-      dockerfile: packages/flow/Dockerfile
-    ports:
-      - "4097:4097"
-    environment:
-      - OPENCODE_BASE_URL=http://opencode:4096
-      - PORT=4097
-    depends_on:
-      - opencode
-
-  redis:
-    image: redis:7
-    ports:
-      - "6379:6379"
-```
-
----
-
-## 七、React Flow 可视化集成
-
-### 7.1 节点类型定义
-
-```typescript
-// packages/web/src/graph/node-types.ts
-export interface GraphNode {
-  id: string
-  type: "prompt" | "llm" | "processor" | "permission" | "tool" | "output"
-  position: { x: number; y: number }
-  data: {
-    label: string
-    description?: string
-    status?: "idle" | "running" | "completed" | "error"
-    config?: Record<string, any>
-  }
-}
-
-export interface GraphEdge {
-  id: string
-  source: string
-  target: string
-  type: "default" | "conditional"
-  label?: string
-  animated?: boolean
-}
-
-// 节点类型映射
-export const NODE_TYPES: Record<string, ComponentType> = {
-  prompt: PromptNodeComponent,
-  llm: LLMNodeComponent,
-  processor: ProcessorNodeComponent,
-  permission: PermissionNodeComponent,
-  tool: ToolNodeComponent,
-  output: OutputNodeComponent,
-}
-```
-
-### 7.2 自定义节点组件
-
-### 7.3 图编辑器组件
-
-### 7.4 实时状态同步
-
-### 7.5 图配置持久化
-
----
-
-## 八、实施路线图
-
-### 8.1 总体时间线
-
-```
-Week 1-2:  独立包基础架构
-Week 3-4:  完整流程实现
-Week 5-7:  可视化基础
-Week 8-9:  实时同步
-Week 10-12: 高级功能
-```
-
-### 8.2 第一阶段：独立包基础架构 (Week 1-2)
-
-**目标**: 创建 `packages/flow/` 包，完成 LangGraph 基础集成
-
-#### Week 1: 项目设置与核心定义
-
-**Day 1-2: 项目初始化**
-
-- [ ] 创建 `packages/flow/` 目录结构
-- [ ] 编写 `package.json` (配置依赖和脚本)
-- [ ] 配置 `tsconfig.json` (TypeScript 设置)
-- [ ] 配置 `bunfig.toml` (Bun 运行时设置)
-- [ ] 创建 `.gitignore` 文件
-- [ ] 编写 README.md (包说明)
-
-**Day 3-4: 核心类型定义**
-
-- [ ] 从 OpenCode 复制类型定义到 `src/copied/types.ts`
-  - [ ] `MessageV2` 类型
-  - [ ] `ToolInfo` 类型
-  - [ ] `PermissionRequest` 类型
-  - [ ] `SessionInfo` 类型
-- [ ] 从 OpenCode 复制工具函数到 `src/copied/utils.ts`
-  - [ ] `convertToAIMessages()`
-  - [ ] `createDefaultTitle()`
-  - [ ] `Identifier.ascending()`
-- [ ] 定义 `GraphState` Schema (`src/state.ts`)
-
-**Day 5: OpenCode API 客户端**
-
-- [ ] 实现 `OpenCodeClient` 类 (`src/opencode-client.ts`)
-  - [ ] 配置管理（baseUrl, auth）
-  - [ ] `getSession()` 方法
-  - [ ] `createMessage()` 方法
-  - [ ] `updatePart()` 方法
-  - [ ] `executeTool()` 方法
-  - [ ] `checkPermission()` 方法
-
-**交付物**:
-
-- `packages/flow/` 基础结构
-- 类型定义和工具函数
-- OpenCode API 客户端
-
-#### Week 2: 节点实现与 HTTP 服务器
-
-**Day 1-2: 节点基类与核心节点**
-
-- [ ] 实现 `BaseNode` 抽象类 (`src/nodes/base.ts`)
-  - [ ] `execute()` 抽象方法
-  - [ ] `onError()` 错误处理
-  - [ ] `toJSON()` 序列化
-- [ ] 实现 `PromptNode` (`src/nodes/prompt.ts`)
-- [ ] 实现 `OutputNode` (`src/nodes/output.ts`)
-
-**Day 3-4: 高级节点**
-
-- [ ] 实现 `LLMNode` (`src/nodes/llm.ts`)
-  - [ ] 集成 LangChain AI SDK
-  - [ ] 系统提示词构建
-  - [ ] 流式响应处理
-- [ ] 实现 `ProcessorNode` (`src/nodes/processor.ts`)
-  - [ ] 文本增量处理
-  - [ ] 工具调用识别
-- [ ] 实现 `PermissionNode` (`src/nodes/permission.ts`)
-- [ ] 实现 `ToolNode` (`src/nodes/tool.ts`)
-
-**Day 5: HTTP 服务器**
-
-- [ ] 实现 `createServer()` (`src/server/index.ts`)
-  - [ ] Hono 应用初始化
-  - [ ] CORS 中间件
-  - [ ] 健康检查端点 `/health`
-- [ ] 实现图路由 (`src/server/routes/graph.ts`)
-  - [ ] `POST /graph/start` - 启动图执行
-  - [ ] `GET /graph/:sessionID/status` - 获取状态
-  - [ ] `POST /graph/:sessionID/feedback` - 用户反馈
-
-**交付物**:
-
-- 6 个核心节点实现
-- HTTP 服务器（端口 4097）
-- 基础 API 端点
-
-**阶段测试**:
-
-```bash
-cd packages/flow
-bun run dev  # 启动开发服务器
-curl http://localhost:4097/health  # 验证健康检查
-```
-
-### 8.3 第二阶段：完整流程实现 (Week 3-4)
-
-#### Week 3: 图构建与流程控制
-
-**Day 1-2: 图构建器**
-
-- [ ] 实现 `GraphBuilder` 类 (`src/builder.ts`)
-  - [ ] `addNode()` 方法
-  - [ ] `addEdge()` 方法
-  - [ ] `build()` 方法
-  - [ ] 节点执行包装器（错误处理）
-- [ ] 实现 `createDefaultGraph()` 函数
-  - [ ] 创建默认 6 节点流程图
-  - [ ] 配置固定边
-  - [ ] 配置条件边
-
-**Day 3-4: 条件边逻辑**
-
-- [ ] 实现边条件函数 (`src/edges/index.ts`)
-  - [ ] `permission` 节点的条件判断
-  - [ ] `wait_user` 节点的条件判断
-  - [ ] `llm` 节点的循环控制
-- [ ] 实现循环计数器
-  - [ ] `loopCount` 状态管理
-  - [ ] 最大循环次数限制（100 次）
-
-**Day 5: 状态持久化**
-
-- [ ] 实现 `RedisSaver` 类 (`src/persistence.ts`)
-  - [ ] Redis 连接配置
-  - [ ] `get()` 方法
-  - [ ] `put()` 方法
-  - [ ] `delete()` 方法
-- [ ] 集成到 LangGraph
-
-**交付物**:
-
-- 完整的图构建器
-- 条件边逻辑
-- Redis 状态持久化
-
-#### Week 4: 事件与集成测试
-
-**Day 1-2: 事件系统**
-
-- [ ] 定义图事件 (`src/events.ts`)
-  - [ ] `graph.node.started`
-  - [ ] `graph.node.completed`
-  - [ ] `graph.state.updated`
-  - [ ] `graph.execution.completed`
-- [ ] 实现事件发布机制
-  - [ ] 使用 EventEmitter
-  - [ ] SSE 推送支持
-
-**Day 3-4: OpenCode 集成**
-
-- [ ] 实现 Webhook 路由 (`src/server/routes/webhook.ts`)
-  - [ ] 接收 OpenCode 事件
-  - [ ] 更新图状态
-- [ ] 端到端集成测试
-  - [ ] 创建测试会话
-  - [ ] 执行完整流程
-  - [ ] 验证状态同步
-
-**Day 5: 测试与修复**
-
-- [ ] 编写单元测试 (`test/nodes/`)
-  - [ ] `PromptNode` 测试
-  - [ ] `ToolNode` 测试
-  - [ ] `GraphBuilder` 测试
-- [ ] Bug 修复和优化
-
-**交付物**:
-
-- 完整的事件系统
-- OpenCode 集成
-- 单元测试覆盖
-
-**阶段测试**:
-
-```bash
-# 启动 OpenCode 和 Flow
-cd packages/opencode && bun run dev  # 端口 4096
-cd packages/flow && bun run dev      # 端口 4097
-
-# 测试图执行
-curl -X POST http://localhost:4097/graph/start \
-  -H "Content-Type: application/json" \
-  -d '{"sessionID": "session_xxx", "userInput": "hello"}'
-```
-
-### 8.4 第三阶段：可视化基础 (Week 5-7)
-
-#### Week 5: React Flow 集成
-
-**Day 1-2: 项目设置**
-
-- [ ] 在 `packages/web` 中安装 React Flow
-  ```bash
-  cd packages/web
-  bun add reactflow @xyflow/react
-  ```
-- [ ] 创建组件目录结构
-  - [ ] `src/components/graph/`
-  - [ ] `src/components/graph/nodes/`
-  - [ ] `src/hooks/`
-
-**Day 3-4: 节点组件**
-
-- [ ] 实现 `PromptNodeComponent` (`components/graph/nodes/PromptNode.tsx`)
-- [ ] 实现 `LLMNodeComponent` (`components/graph/nodes/LLMNode.tsx`)
-- [ ] 实现 `ProcessorNodeComponent`
-- [ ] 实现 `ToolNodeComponent`
-- [ ] 实现 `PermissionNodeComponent`
-- [ ] 实现 `OutputNodeComponent`
-
-**Day 5: 节点类型映射**
-
-- [ ] 创建 `NodeTypes.tsx` 配置
-- [ ] 实现自定义节点样式
-- [ ] 添加节点状态指示器（颜色、图标）
-
-**交付物**:
-
-- React Flow 基础集成
-- 6 个自定义节点组件
-
-#### Week 6: 图编辑器
-
-**Day 1-2: 基础编辑器**
-
-- [ ] 实现 `GraphEditor` 组件 (`components/graph/GraphEditor.tsx`)
-  - [ ] ReactFlow 初始化
-  - [ ] 节点状态管理
-  - [ ] 边状态管理
-- [ ] 添加 Controls 和 Background
-
-**Day 3-4: 拖拽功能**
-
-- [ ] 实现节点拖拽添加
-  - [ ] 侧边栏节点列表
-  - [ ] Drag and Drop API
-  - [ ] 节点位置计算
-- [ ] 实现边连接功能
-  - [ ] Handle 配置
-  - [ ] 连接验证
-  - [ ] 边删除
-
-**Day 5: 配置面板**
-
-- [ ] 实现节点配置面板
-  - [ ] 节点属性编辑
-  - [ ] 配置保存
-- [ ] 实现图属性面板
-  - [ ] 图名称编辑
-  - [ ] 全局配置
-
-**交付物**:
-
-- 可拖拽的图编辑器
-- 节点配置功能
-
-#### Week 7: 后端集成
-
-**Day 1-2: API 连接**
-
-- [ ] 实现 Flow API 客户端 (`src/api/flow.ts`)
-  - [ ] `startGraph()` 方法
-  - [ ] `getGraphStatus()` 方法
-  - [ ] `sendFeedback()` 方法
-  - [ ] `saveGraphConfig()` 方法
-  - [ ] `loadGraphConfig()` 方法
-
-**Day 3-4: 数据同步**
-
-- [ ] 实现图配置保存/加载
-  - [ ] 节点数据序列化
-  - [ ] 边数据序列化
-  - [ ] 本地存储（localStorage）
-- [ ] 实现图导入/导出
-  - [ ] JSON 导出
-  - [ ] JSON 导入
-
-**Day 5: 集成测试**
-
-- [ ] 端到端测试
-  - [ ] 创建图 → 保存 → 加载 → 执行
-- [ ] UI 测试
-  - [ ] 节点拖拽测试
-  - [ ] 边连接测试
-  - [ ] 配置保存测试
-
-**交付物**:
-
-- Flow 后端 API 集成
-- 图配置持久化
-
-**阶段演示**:
-
-```
-1. 打开 Web 界面 (/graph)
-2. 从侧边栏拖拽节点到画布
-3. 连接节点创建流程
-4. 配置节点参数
-5. 保存图配置
-6. 点击"执行"启动流程
-```
-
-### 8.5 第四阶段：实时同步 (Week 8-9)
-
-#### Week 8: SSE 实时推送
-
-**Day 1-2: SSE 服务端**
-
-- [ ] 实现 SSE 端点 (`src/server/routes/graph.ts`)
-  - [ ] `GET /graph/:sessionID/stream`
-  - [ ] 事件流管理
-  - [ ] 客户端连接追踪
-- [ ] 实现事件转发
-  - [ ] Node 事件 → SSE
-  - [ ] State 事件 → SSE
-
-**Day 3-4: SSE 客户端**
-
-- [ ] 实现 `useGraphStream` Hook (`src/hooks/useGraphStream.ts`)
-  - [ ] EventSource 管理
-  - [ ] 事件监听
-  - [ ] 自动重连
-- [ ] 实现状态更新
-  - [ ] 节点状态同步
-  - [ ] 边状态同步
-
-**Day 5: 状态可视化**
-
-- [ ] 实现节点执行动画
-  - [ ] 运行时高亮
-  - [ ] 进度指示器
-- [ ] 实现边激活状态
-  - [ ] 数据流动画
-  - [ ] 条件边状态
-
-**交付物**:
-
-- SSE 实时推送
-- 节点状态可视化
-
-#### Week 9: 性能优化
-
-**Day 1-2: 性能优化**
-
-- [ ] 实现防抖/节流
-  - [ ] 状态更新节流（100ms）
-  - [ ] 拖拽防抖
-- [ ] 实现虚拟滚动
-  - [ ] 大节点列表优化
-  - [ ] 可见区域渲染
-
-**Day 3-4: 错误处理**
-
-- [ ] 实现错误边界
-  - [ ] React Error Boundary
-  - [ ] 错误 UI 展示
-- [ ] 实现重试机制
-  - [ ] SSE 断线重连
-  - [ ] API 失败重试
-
-**Day 5: 测试与调优**
-
-- [ ] 性能测试
-  - [ ] 50+ 节点渲染测试
-  - [ ] 高频更新测试
-- [ ] 兼容性测试
-  - [ ] 浏览器兼容性
-  - [ ] 移动端适配
-
-**交付物**:
-
-- 性能优化
-- 错误处理机制
-
-### 8.6 第五阶段：高级功能 (Week 10-12)
-
-#### Week 10: 图模板系统
-
-**Day 1-2: 模板定义**
-
-- [ ] 设计模板 Schema
-- [ ] 创建默认模板
-  - [ ] 基础会话流程模板
-  - [ ] 工具调用模板
-  - [ ] 权限审批模板
-
-**Day 3-4: 模板管理**
-
-- [ ] 实现模板库组件
-- [ ] 实现模板应用功能
-- [ ] 实现模板自定义
-
-**Day 5: 版本控制**
-
-- [ ] 实现图版本管理
-  - [ ] 版本快照
-  - [ ] 版本对比
-  - [ ] 版本回滚
-
-**交付物**:
-
-- 图模板系统
-- 版本控制
-
-#### Week 11: 协作功能（可选）
-
-**Day 1-2: 实时协作**
-
-- [ ] 实现 WebSocket 协作
-- [ ] 实现操作同步
-- [ ] 实现用户存在指示
-
-**Day 3-4: 权限管理**
-
-- [ ] 实现图访问控制
-- [ ] 实现编辑权限
-- [ ] 实现评论系统
-
-**Day 5: 测试**
-
-- [ ] 多用户协作测试
-
-**交付物**:
-
-- 协作编辑功能
-
-#### Week 12: 文档与部署
-
-**Day 1-2: 文档编写**
-
-- [ ] 编写 API 文档
-- [ ] 编写用户指南
-- [ ] 编写开发文档
-
-**Day 3-4: 部署配置**
-
-- [ ] 编写 Dockerfile
-- [ ] 配置 docker-compose.yml
-- [ ] 配置 CI/CD 流程
-
-**Day 5: 发布准备**
-
-- [ ] 最终测试
-- [ ] Bug 修复
-- [ ] 发布 v1.0.0
-
-**交付物**:
-
-- 完整文档
-- 生产部署配置
-
----
-
-## 九、开发检查清单
-
-### 9.1 环境准备
-
-```bash
-# 1. 确认 Bun 版本
-bun --version  # 需要 1.3.10+
-
-# 2. 安装根依赖
-cd /home/devbox/project/opencode
-bun install
-
-# 3. 创建 flow 包
-mkdir -p packages/flow/src/{nodes,server,routes,copied}
-cd packages/flow
-bun init
-```
-
-### 9.2 第一阶段检查清单
-
-```bash
-# Week 1 检查
-□ packages/flow/package.json 存在
-□ packages/flow/tsconfig.json 存在
-□ src/copied/types.ts 包含必要类型
-□ src/opencode-client.ts 实现完成
-□ src/state.ts 定义 GraphState
-
-# Week 2 检查
-□ src/nodes/base.ts 实现 BaseNode
-□ src/nodes/*.ts 实现 6 个节点
-□ src/server/index.ts 启动 HTTP 服务
-□ curl localhost:4097/health 返回 OK
-```
-
-### 9.3 第二阶段检查清单
-
-```bash
-# Week 3 检查
-□ src/builder.ts 实现 GraphBuilder
-□ src/edges/index.ts 实现条件边
-□ src/persistence.ts 实现 RedisSaver
-□ 图执行测试通过
-
-# Week 4 检查
-□ src/events.ts 定义图事件
-□ src/server/routes/webhook.ts 实现
-□ test/nodes/*.test.ts 单元测试
-□ 端到端测试通过
-```
-
-### 9.4 第三阶段检查清单
-
-```bash
-# Week 5 检查
-□ packages/web 安装 reactflow
-□ src/components/graph/nodes/*.tsx 实现
-□ src/components/graph/NodeTypes.tsx 配置
-
-# Week 6 检查
-□ src/components/graph/GraphEditor.tsx 实现
-□ 拖拽功能正常
-□ 边连接功能正常
-
-# Week 7 检查
-□ src/api/flow.ts API 客户端
-□ 图保存/加载功能
-□ 端到端测试通过
-```
-
-### 9.5 第四阶段检查清单
-
-```bash
-# Week 8 检查
-□ SSE 端点实现
-□ src/hooks/useGraphStream.ts Hook
-□ 节点状态实时更新
-
-# Week 9 检查
-□ 性能优化完成
-□ 错误处理完善
-□ 50+ 节点测试通过
-```
-
-### 9.6 第五阶段检查清单
-
-```bash
-# Week 10 检查
-□ 模板系统实现
-□ 版本控制功能
-
-# Week 11 检查
-□ 协作功能（如实现）
-
-# Week 12 检查
-□ 文档完整
-□ Docker 配置
-□ v1.0.0 发布
-```
-
----
-
-## 十、文件结构
-
-### 10.1 完整目录结构
-
-```
-packages/
-├── opencode/              # 原有核心包（不修改）
-│   └── src/
-├── flow/                  # 新建 LangGraph 包
-│   ├── package.json
-│   ├── tsconfig.json
-│   ├── bunfig.toml
-│   ├── README.md
-│   └── src/
-│       ├── index.ts              # 导出
-│       ├── state.ts              # GraphState Schema
-│       ├── builder.ts            # 图构建器
-│       ├── persistence.ts        # 状态持久化
-│       ├── events.ts             # 图事件定义
-│       ├── config.ts             # 配置管理
-│       ├── opencode-client.ts    # OpenCode API 客户端
-│       ├── nodes/
-│       │   ├── base.ts           # 节点基类
-│       │   ├── prompt.ts         # PromptNode
-│       │   ├── llm.ts            # LLMNode
-│       │   ├── processor.ts      # ProcessorNode
-│       │   ├── permission.ts     # PermissionNode
-│       │   ├── tool.ts           # ToolNode
-│       │   └── output.ts         # OutputNode
-│       ├── edges/
-│       │   └── index.ts          # 边定义
-│       ├── server/
-│       │   ├── index.ts          # HTTP 服务器
-│       │   └── routes/
-│       │       ├── graph.ts      # 图相关路由
-│       │       └── webhook.ts    # OpenCode 回调
-│       ├── copied/               # 从 OpenCode 复制的代码
-│       │   ├── types.ts          # 类型定义
-│       │   └── utils.ts          # 工具函数
-│       └── test/
-│           └── nodes/
-│               ├── prompt.test.ts
-│               └── tool.test.ts
-└── web/                   # Web 前端
-    └── src/
-        └── components/
-            └── graph/
-                ├── GraphEditor.tsx
-                ├── NodeTypes.tsx
-                └── nodes/
-                    ├── PromptNode.tsx
-                    ├── LLMNode.tsx
-                    └── ...
-```
-
----
-
-## 十一、依赖包
-
-### 11.1 packages/flow 依赖
-
-```json
-{
-  "name": "@opencode-ai/flow",
-  "version": "0.0.1",
-  "type": "module",
-  "scripts": {
-    "dev": "bun run --hot src/index.ts",
-    "build": "bun build src/index.ts --outdir dist",
-    "test": "bun test",
-    "typecheck": "tsc --noEmit"
+export const FlowConfig = {
+  // 独立的状态目录
+  stateDir: process.env.FLOW_STATE_DIR || "./.flow-state",
+
+  // 独立的配置
+  providers: {
+    anthropic: { apiKey: process.env.FLOW_ANTHROPIC_API_KEY },
+    openai: { apiKey: process.env.FLOW_OPENAI_API_KEY },
   },
-  "dependencies": {
-    "@langchain/langgraph": "^0.2.0",
-    "@langchain/core": "^0.3.0",
-    "@langchain/anthropic": "^0.3.0",
-    "@langchain/openai": "^0.3.0",
-    "hono": "^4.0.0",
-    "zod": "^3.22.0",
-    "redis": "^4.6.0"
+
+  // 工具配置
+  tools: {
+    bash: { enabled: true, timeout: 120000 },
+    read: { enabled: true, maxLines: 2000 },
+    // ...
   },
-  "devDependencies": {
-    "@types/bun": "latest",
-    "typescript": "^5.0.0"
-  }
+
+  // 权限配置
+  permissions: {
+    default: "ask", // ask | allow | deny
+    rules: [],
+  },
 }
 ```
 
-### 11.2 packages/web 依赖（React Flow）
+### 4.3 与 OpenCode 的关系
 
-```json
-{
-  "dependencies": {
-    "reactflow": "^11.10.0",
-    "@xyflow/react": "^12.0.0"
-  }
-}
+```
+┌─────────────────────────────────────────────────────────┐
+│                    代码关系                              │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  packages/opencode/          packages/flow/            │
+│  ┌─────────────┐            ┌─────────────┐           │
+│  │  原始代码   │  ──────→   │  复制代码   │           │
+│  │  (不修改)   │   复制     │  (可适配)   │           │
+│  └─────────────┘            └─────────────┘           │
+│                                                         │
+│  变更同步：手动或脚本定期同步                             │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────┐
+│                   运行时关系                             │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  OpenCode 运行时          Flow 运行时                   │
+│  ┌─────────────┐         ┌─────────────┐              │
+│  │   CLI       │         │  Graph API  │              │
+│  │   Web       │         │  + Web UI   │              │
+│  └─────────────┘         └─────────────┘              │
+│                                                         │
+│  独立运行，互不依赖                                       │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 十二、风险与挑战
+## 五、实施路线图（优化版）
 
-### 12.1 技术风险
+### 阶段 1: 代码复制与适配 (Week 1-3)
 
-| 风险                    | 影响 | 缓解措施                  |
-| ----------------------- | ---- | ------------------------- |
-| LangGraph TS 版本不成熟 | 高   | 评估替代方案（如 XState） |
-| React Flow 性能问题     | 中   | 虚拟滚动、懒加载          |
-| 状态同步延迟            | 中   | 优化 SSE、使用 WebSocket  |
-| 代码复制维护成本高      | 中   | 建立自动化同步脚本        |
+**Week 1: 核心模块复制**
 
-### 12.2 实施挑战
+- [ ] 复制 `session/` 模块
+- [ ] 复制 `tool/` 模块（所有工具）
+- [ ] 复制 `permission/` 模块
+- [ ] 适配配置系统
 
-1. **代码同步**: OpenCode 类型变更时需手动同步到 flow 包
-2. **状态管理复杂性**: 图状态与现有 Session 状态同步
-3. **可视化性能**: 大图渲染性能优化
-4. **API 兼容性**: 确保 OpenCode API 向后兼容
+**Week 2: 基础设施复制**
 
-### 12.3 成功标准
+- [ ] 复制 `storage/` 模块
+- [ ] 复制 `bus/` 模块
+- [ ] 复制 `util/` 模块
+- [ ] 复制 `provider/` 模块
 
-- ✅ 完整会话流程可用 LangGraph 执行
-- ✅ 可视化编辑器可拖拽定义流程
-- ✅ 实时状态同步延迟 < 500ms
-- ✅ 支持至少 50 个节点的图
-- ✅ 不修改 packages/opencode 任何代码
+**Week 3: 节点实现**
+
+- [ ] 实现节点基类
+- [ ] 实现 PromptNode
+- [ ] 实现 LLMNode
+- [ ] 实现 ToolNode
+- [ ] 实现 PermissionNode
+- [ ] 实现 OutputNode
+
+**交付物**: 可独立运行的 flow 后端
+
+### 阶段 2: 可视化前端 (Week 4-6)
+
+**Week 4: React Flow 基础**
+
+- [ ] 安装 React Flow
+- [ ] 实现节点组件
+- [ ] 实现拖拽功能
+
+**Week 5: 图编辑器**
+
+- [ ] 实现 GraphEditor
+- [ ] 实现边连接
+- [ ] 实现配置面板
+
+**Week 6: API 集成**
+
+- [ ] 实现 Flow API 客户端
+- [ ] 图执行控制
+- [ ] 状态同步
+
+**交付物**: 可视化编辑器 MVP
+
+### 阶段 3: 实时与优化 (Week 7-9)
+
+**Week 7: SSE 推送**
+
+- [ ] 实现 SSE 服务端
+- [ ] 实现 SSE 客户端
+- [ ] 节点状态实时更新
+
+**Week 8: 性能优化**
+
+- [ ] 防抖/节流
+- [ ] 大图性能优化
+- [ ] 错误处理
+
+**Week 9: 高级功能**
+
+- [ ] 节点配置面板
+- [ ] 模板系统
+- [ ] 版本控制
+
+**交付物**: 完整可视化产品
 
 ---
 
-## 附录
+## 六、使用方式
 
-### A. 相关资源
+### 6.1 启动 Flow
 
-- [LangGraph 文档](https://langchain-ai.github.io/langgraph/)
-- [React Flow 文档](https://reactflow.dev/docs)
-- [OpenCode 系统架构](./系统架构.md)
-- [OpenCode 实现原理](./实现原理.md)
+```bash
+# 1. 设置环境变量
+export FLOW_ANTHROPIC_API_KEY=sk-ant-xxx
+export FLOW_STATE_DIR=./.flow-state
+export PORT=4097
 
-### B. 更新日志
+# 2. 启动服务
+cd packages/flow
+bun run dev
+
+# 3. 访问 Web UI
+open http://localhost:3000
+```
+
+### 6.2 创建可视化流程
+
+1. 从节点库拖拽节点到画布
+2. 连接节点定义流程
+3. 配置节点参数
+4. 保存为模板
+5. 执行流程
+
+### 6.3 复刻 OpenCode 功能
+
+任何 OpenCode 能做的任务，Flow 都能通过可视化流程完成：
+
+| OpenCode 功能 | Flow 实现方式                         |
+| ------------- | ------------------------------------- |
+| 对话          | Prompt → LLM → Output                 |
+| 工具调用      | Prompt → LLM → Tool → LLM → Output    |
+| 权限控制      | Tool → Permission → Tool              |
+| 文件编辑      | Tool(Read) → Tool(Edit) → Tool(Write) |
+| 多轮对话      | Loop 节点 + 条件判断                  |
+
+---
+
+## 七、风险与缓解
+
+| 风险         | 影响 | 缓解措施               |
+| ------------ | ---- | ---------------------- |
+| 代码同步困难 | 高   | 建立自动化同步脚本     |
+| 适配工作量大 | 中   | 优先复制核心模块       |
+| 性能问题     | 中   | 本地调用，无 HTTP 开销 |
+| 维护成本高   | 中   | 明确 flow 为独立产品   |
+
+---
+
+## 八、成功标准
+
+- ✅ flow 可独立运行，不依赖 opencode
+- ✅ 所有节点直接调用本地代码，无 HTTP
+- ✅ 100% 复刻 opencode 功能
+- ✅ 可视化流程可定义任意 AI 工作流
+- ✅ 性能优于或等于 opencode
+
+---
+
+## 更新日志
 
 | 版本 | 日期       | 更新内容                               |
 | ---- | ---------- | -------------------------------------- |
-| 1.2  | 2026-03-01 | 添加详细开发步骤和阶段                 |
-| 1.1  | 2026-03-01 | 更新为独立包架构，不修改 opencode 代码 |
+| 2.0  | 2026-03-02 | 优化为直接调用复制代码，移除 HTTP 依赖 |
+| 1.2  | 2026-03-01 | 添加详细开发步骤                       |
+| 1.1  | 2026-03-01 | 更新为独立包架构                       |
 | 1.0  | 2026-03-01 | 初始版本                               |
-
-本文档版本：1.2  
-创建日期：2026-03-01  
-作者：AI Assistant
